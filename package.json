@@ -2,6 +2,15 @@
   "name": "modelog",
   "displayName": "Modelog",
   "description": "See what actually changed when you changed how you work with AI.",
+  "author": "Scott Molinari <scott.molinari@m8a.io>",
+  "homepage": "https://modelog.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/m8a-io/modelog.git"
+  },
+  "bugs": {
+    "url": "https://github.com/m8a-io/modelog/issues"
+  },
   "version": "0.0.1",
   "publisher": "modelog",
   "license": "MIT",

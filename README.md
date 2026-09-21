@@ -67,6 +67,12 @@ Tests are plain TypeScript run by `node --test` — no test framework dependency
 2. **Work logs & the analysis bridge** — a local MCP server so your existing agent can reason over your own data, plus optional session labelling.
 3. **Enterprise & web** — team rollups, opt-in telemetry, modelog.dev.
 
+## Contact
+
+Built by Scott Molinari — <scott.molinari@m8a.io>
+
+Bugs and feature requests: [GitHub issues](https://github.com/m8a-io/modelog/issues).
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE). Third-party notices in [NOTICE.md](NOTICE.md).
