@@ -8,7 +8,7 @@
 
 ## Why
 
-You switch models, tweak your instructions file, change how you prompt — many times a day. Then you judge the result by feel.
+You switch models, tweak your instructions file, change how you prompt — possibly many times a week. Then you judge the result by feel.
 
 Existing tools show totals. Totals are dominated by how much work you did, not by the choices you made, so they cannot answer the only question that matters:
 
