@@ -8,7 +8,7 @@ const assistant = (over: Record<string, unknown> = {}, usage: Record<string, unk
     uuid: "u1",
     sessionId: "s1",
     timestamp: "2026-09-20T10:00:00.000Z",
-    cwd: "/home/scott/proj",
+    cwd: "/workspace/example",
     gitBranch: "main",
     message: {
       role: "assistant",

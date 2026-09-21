@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Status:** In implementation — Part 1
-**Data-source verification:** 2026-09-20, 507 assistant records across 5 local Claude Code sessions
+**Data-source verification:** 2026-09-20, against a sample of local Claude Code sessions
 
 ---
 
@@ -112,7 +112,7 @@ The work splits into three parts. Each is independently shippable and independen
 
 **Primary source: Claude Code.** `~/.claude/projects/<workspace-slug>/<session-uuid>.jsonl`, append-only JSONL. Each record carries `sessionId`, `timestamp`, `uuid`/`parentUuid` (turn threading), `cwd`, `gitBranch`, `version`, and `type`.
 
-**Verified schema (2026-09-20).** Across 507 assistant records in 5 local sessions, `message.model` and `message.usage` were present and populated on **507 of 507** — coverage is total, not partial. The `usage` object is uniform in shape:
+**Verified schema (2026-09-20).** Across every assistant record in a sample of local sessions, `message.model` and `message.usage` were present and populated — coverage is **total, not partial**. The `usage` object is uniform in shape:
 
 ```
 input_tokens                 output_tokens
@@ -149,7 +149,7 @@ Compute over any date range, segmented by model:
 - sessions per day
 - cache hit rate
 
-**Cost model (cache-aware) — required, not an optimization.** In the verified sample, **95% of all input-side tokens were cache reads**: 56,460,502 cache-read tokens against 1,179 fresh input tokens and 2,509,912 cache-creation tokens. A naive `input_tokens x input_price` calculation would report a cost near zero and be wrong by orders of magnitude.
+**Cost model (cache-aware) — required, not an optimization.** In the verified sample, **roughly 95% of all input-side tokens were cache reads**, with fresh input tokens numbering in the low thousands against tens of millions of cache reads. A naive `input_tokens x input_price` calculation would report a cost near zero and be wrong by orders of magnitude.
 
 Cost must therefore be computed across four separately-priced token classes — fresh input, cache read, cache creation, and output — and cache creation must be split further, since `ephemeral_1h` and `ephemeral_5m` writes price differently (observed split: 2,144,830 vs 365,082 tokens, so both are live in practice). Thinking tokens are reported inside `output_tokens_details` and must not be double-counted against `output_tokens`.
 

@@ -4,7 +4,7 @@ import type { Turn, Diagnostic, ParseResult } from "./types.ts";
  * Claude Code source adapter.
  *
  * Reads `~/.claude/projects/<slug>/<session-uuid>.jsonl` — append-only JSONL,
- * one record per line. Verified against 507 assistant records (PRD §7.1).
+ * one record per line. Schema verified against real session logs (PRD §7.1).
  *
  * Pure: takes text, returns turns. No filesystem, no VS Code, no clock. That
  * is what makes it testable and what keeps the trust guarantees checkable.
