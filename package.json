@@ -1,0 +1,98 @@
+{
+  "name": "modelog",
+  "displayName": "Modelog",
+  "description": "See what actually changed when you changed how you work with AI.",
+  "version": "0.0.1",
+  "publisher": "modelog",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=24"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "modelog.openDashboard",
+        "title": "Modelog: Open Dashboard"
+      },
+      {
+        "command": "modelog.rescan",
+        "title": "Modelog: Rescan Session Logs"
+      },
+      {
+        "command": "modelog.exportData",
+        "title": "Modelog: Export Data"
+      }
+    ],
+    "configuration": {
+      "title": "Modelog",
+      "properties": {
+        "modelog.logPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "~/.claude/projects"
+          ],
+          "description": "Directories to scan for AI assistant session logs."
+        },
+        "modelog.billingMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "subscription",
+            "api"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Detect from Claude Code's configuration (recommended).",
+            "Seat or plan billing \u2014 costs are shown as estimates at API list rates.",
+            "Per-token API billing \u2014 costs track actual spend."
+          ],
+          "description": "How your AI assistant usage is billed. Determines how Modelog describes its cost figures."
+        },
+        "modelog.statusBar.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Modelog summary in the status bar."
+        },
+        "modelog.defaultRange": {
+          "type": "string",
+          "enum": [
+            "7d",
+            "30d",
+            "90d",
+            "all"
+          ],
+          "default": "30d",
+          "description": "Default date range for the dashboard."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "lint:theme": "./scripts/check-theme.sh",
+    "check": "npm run typecheck && npm run lint:theme && npm test",
+    "test": "node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "echarts": "^6.1.0"
+  }
+}

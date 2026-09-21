@@ -1,0 +1,170 @@
+/*
+ * Theming contract (DESIGN.md §4): NO literal colors in this file, ever.
+ * Every color is a VS Code theme variable, so the panel follows the user's
+ * theme automatically — including live theme switches and high-contrast.
+ * `npm run lint:theme` fails the build if a literal sneaks in.
+ */
+
+body {
+  margin: 0;
+  padding: 1.5rem 2rem;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 .75rem; }
+h2 { font-size: 1rem; font-weight: 600; margin: 2rem 0 .75rem; }
+
+.muted { color: var(--vscode-descriptionForeground); max-width: 62ch; line-height: 1.6; }
+
+.banner {
+  border: 1px solid var(--vscode-panel-border);
+  border-left: 3px solid var(--vscode-charts-orange);
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-foreground);
+  padding: .6rem .85rem;
+  margin: 0 0 1rem;
+  border-radius: 3px;
+  font-size: .92em;
+}
+
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: .4rem;
+}
+
+.swatch {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .4rem .6rem;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 3px;
+}
+.swatch:hover { background: var(--vscode-list-hoverBackground); }
+
+.dot {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 2px;
+  border: 1px solid var(--vscode-panel-border);
+  flex: none;
+}
+
+code {
+  font-family: var(--vscode-editor-font-family);
+  font-size: .85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ---- dashboard ---- */
+
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;
+}
+.header h1 { margin: 0; }
+
+.title { display: flex; align-items: baseline; gap: .6rem; }
+
+.billing { position: relative; display: inline-flex; align-items: center; gap: .25rem; }
+.billing-label {
+  font-size: .8em;
+  letter-spacing: .02em;
+  color: var(--vscode-descriptionForeground);
+}
+.info-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; border: 0; background: none; cursor: help;
+  color: var(--vscode-descriptionForeground);
+  line-height: 0;
+}
+.info-btn:hover { color: var(--vscode-foreground); }
+.info-btn:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px; border-radius: 2px;
+}
+.info-pop {
+  position: absolute; top: calc(100% + .5rem); left: 0; z-index: 5;
+  width: max(280px, 34ch); padding: .6rem .75rem;
+  border-radius: 4px; font-size: .88em; line-height: 1.5; font-weight: 400;
+  background: var(--vscode-editorHoverWidget-background);
+  border: 1px solid var(--vscode-editorHoverWidget-border);
+  color: var(--vscode-editorHoverWidget-foreground);
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+}
+
+.controls { display: flex; gap: .35rem; }
+.controls button {
+  font-family: inherit; font-size: .9em; cursor: pointer;
+  padding: .3rem .7rem; border-radius: 3px;
+  border: 1px solid var(--vscode-panel-border);
+  background: transparent;
+  color: var(--vscode-foreground);
+}
+.controls button:hover { background: var(--vscode-list-hoverBackground); }
+.controls button.active {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: var(--vscode-button-background);
+}
+.controls button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+
+.banner.warn { border-left-color: var(--vscode-charts-orange); }
+.banner.info { border-left-color: var(--vscode-charts-blue); }
+
+.stats { display: flex; gap: 2.5rem; margin: 1.25rem 0 .5rem; flex-wrap: wrap; }
+.stat-value {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 1.6rem; font-weight: 600;
+}
+.stat-label {
+  font-size: .82em; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .95em; }
+th, td {
+  text-align: left; padding: .45rem .7rem;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  white-space: nowrap;
+}
+th {
+  font-weight: 600; font-size: .82em; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--vscode-descriptionForeground);
+}
+td.num, th.num { text-align: right; font-family: var(--vscode-editor-font-family); }
+td.emph { font-weight: 600; }
+tbody tr:hover { background: var(--vscode-list-hoverBackground); }
+
+.pill {
+  display: inline-block; margin-left: .5rem; padding: .05rem .4rem;
+  border-radius: 8px; font-size: .78em;
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+}
+
+.switches { list-style: none; padding: 0; margin: 0; }
+.switches li {
+  display: flex; align-items: center; gap: .85rem;
+  padding: .35rem 0; border-bottom: 1px solid var(--vscode-panel-border);
+}
+.switches .when {
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family); font-size: .85em;
+}
+.switches .label { font-weight: 500; }
+
+/* ---- chart ---- */
+
+/* ECharts measures its container, so the height must be explicit. */
+.chart {
+  position: relative;
+  width: 100%;
+  height: 320px;
+  margin: .5rem 0 1rem;
+}
