@@ -26,6 +26,22 @@ export interface Turn {
   /** Underlying inference calls in this turn. A turn is not a call. */
   iterations: number;
 
+  /**
+   * Which surface of the tool produced the turn — `claude-vscode` for the VS
+   * Code extension, a different value for the CLI. Same tool, same billing,
+   * same units, so segmenting on it is tier-2 comparable (PRD §4.5). Null
+   * where the source record does not carry the field.
+   */
+  entrypoint: string | null;
+
+  /**
+   * True when the turn belongs to a spawned subagent rather than the user's
+   * own conversation. A real API call costing real money, but not a turn the
+   * user chose — so it is a confound for any per-turn behavioural comparison.
+   * Captured only; how it affects displayed metrics is not yet decided.
+   */
+  isSidechain: boolean;
+
   cwd: string | null;
   gitBranch: string | null;
   sourceFile: string;

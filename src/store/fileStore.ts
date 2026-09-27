@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Turn, FileCursor } from "../ingest/types.ts";
-import type { Store } from "./store.ts";
+import { SCHEMA_VERSION, type Store } from "./store.ts";
 
 /**
  * Fallback for hosts without `node:sqlite` (an older Electron). Because the
@@ -21,8 +21,13 @@ export class FileStore implements Store {
     if (existsSync(path)) {
       try {
         const data = JSON.parse(readFileSync(path, "utf8"));
-        for (const t of data.turns ?? []) this.turns.set(t.uuid, t);
-        for (const c of data.cursors ?? []) this.cursors.set(c.path, c);
+        // A cache written before the current Turn shape is missing fields that
+        // downstream code now expects. Discarding it costs one rescan; keeping
+        // it would hand out turns with undefined where a value should be.
+        if (data.version === SCHEMA_VERSION) {
+          for (const t of data.turns ?? []) this.turns.set(t.uuid, t);
+          for (const c of data.cursors ?? []) this.cursors.set(c.path, c);
+        }
       } catch {
         // A corrupt cache is discarded, not repaired — the logs rebuild it.
       }
@@ -69,7 +74,11 @@ export class FileStore implements Store {
     mkdirSync(dirname(this.path), { recursive: true });
     writeFileSync(
       this.path,
-      JSON.stringify({ turns: [...this.turns.values()], cursors: [...this.cursors.values()] }),
+      JSON.stringify({
+        version: SCHEMA_VERSION,
+        turns: [...this.turns.values()],
+        cursors: [...this.cursors.values()],
+      }),
     );
   }
 }

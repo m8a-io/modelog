@@ -127,3 +127,25 @@ test("never reads message content — prompts and code stay out of the store", (
   const { turns } = parseChunk(JSON.stringify(rec) + "\n", "f.jsonl");
   assert.equal(JSON.stringify(turns[0]).includes("SECRET"), false);
 });
+
+test("captures entrypoint — the CLI-vs-IDE segment", () => {
+  const { turns } = parseChunk(assistant({ entrypoint: "claude-vscode" }) + "\n", "f.jsonl");
+  assert.equal(turns[0]!.entrypoint, "claude-vscode");
+});
+
+test("a record with no entrypoint yields null, not a guessed surface", () => {
+  const { turns } = parseChunk(assistant() + "\n", "f.jsonl");
+  assert.equal(turns[0]!.entrypoint, null);
+});
+
+test("flags subagent turns — a sidechain call is not a turn the user chose", () => {
+  const { turns } = parseChunk(assistant({ isSidechain: true }) + "\n", "f.jsonl");
+  assert.equal(turns[0]!.isSidechain, true);
+});
+
+test("isSidechain defaults to false and is never coerced from a truthy value", () => {
+  assert.equal(parseChunk(assistant() + "\n", "f.jsonl").turns[0]!.isSidechain, false);
+  // Anything other than a real boolean true is not evidence of a subagent.
+  const odd = parseChunk(assistant({ isSidechain: "yes" }) + "\n", "f.jsonl");
+  assert.equal(odd.turns[0]!.isSidechain, false);
+});

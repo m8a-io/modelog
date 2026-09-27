@@ -128,6 +128,8 @@ function toTurn(
     outputTokens: num(usage.output_tokens),
     thinkingTokens: details ? num(details.thinking_tokens) : 0,
     iterations: Array.isArray(usage.iterations) ? usage.iterations.length : 1,
+    entrypoint: typeof rec.entrypoint === "string" ? rec.entrypoint : null,
+    isSidechain: rec.isSidechain === true,
     cwd: typeof rec.cwd === "string" ? rec.cwd : null,
     gitBranch: typeof rec.gitBranch === "string" ? rec.gitBranch : null,
     sourceFile: file,

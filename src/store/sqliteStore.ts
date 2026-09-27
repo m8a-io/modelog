@@ -1,5 +1,5 @@
 import type { Turn, FileCursor } from "../ingest/types.ts";
-import type { Store } from "./store.ts";
+import { SCHEMA_VERSION, type Store } from "./store.ts";
 
 /**
  * SQLite backed by Node's built-in `node:sqlite` — no native module, no
@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS turns (
   output_tokens         INTEGER NOT NULL,
   thinking_tokens       INTEGER NOT NULL,
   iterations            INTEGER NOT NULL,
+  entrypoint            TEXT,
+  is_sidechain          INTEGER NOT NULL DEFAULT 0,
   cwd                   TEXT,
   git_branch            TEXT,
   source_file           TEXT    NOT NULL
@@ -52,8 +54,53 @@ CREATE TABLE IF NOT EXISTS cursors (
 );
 `;
 
+/**
+ * Columns added after the first release. `CREATE TABLE IF NOT EXISTS` is a
+ * no-op against an existing database, so the statement above will not add a
+ * column to a store that already exists — it has to be ALTERed in.
+ *
+ * Append-only: never reorder or remove an entry, or an older database will
+ * migrate to a different shape than a new one.
+ */
+const ADDED_COLUMNS: ReadonlyArray<{ column: string; ddl: string }> = [
+  { column: "entrypoint", ddl: "ALTER TABLE turns ADD COLUMN entrypoint TEXT" },
+  {
+    column: "is_sidechain",
+    ddl: "ALTER TABLE turns ADD COLUMN is_sidechain INTEGER NOT NULL DEFAULT 0",
+  },
+];
+
+/**
+ * Bring an existing database up to SCHEMA_VERSION. Returns the columns it had
+ * to add, which is empty for a database created fresh from SCHEMA.
+ */
+export function migrate(db: any): string[] {
+  const present = new Set<string>(
+    db.prepare("SELECT name FROM pragma_table_info('turns')").all().map((r: any) => r.name),
+  );
+
+  const added: string[] = [];
+  for (const { column, ddl } of ADDED_COLUMNS) {
+    if (present.has(column)) continue;
+    db.exec(ddl);
+    added.push(column);
+  }
+
+  // Rows that already existed carry the column default, not real data. The
+  // scanner skips any file whose size and mtime are unchanged, so it would
+  // never revisit them and the backfill would silently never happen. Dropping
+  // the cursors forces one full re-read; upserts key on the record uuid, so
+  // that is safe and cannot double-count.
+  if (added.length > 0) db.exec("DELETE FROM cursors");
+
+  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  return added;
+}
+
 export class SqliteStore implements Store {
   readonly backend = "sqlite" as const;
+  /** Columns ALTERed in on open — non-empty only after an extension update. */
+  readonly migratedColumns: readonly string[];
   private db: any;
 
   constructor(sqlite: any, dbPath: string) {
@@ -61,6 +108,7 @@ export class SqliteStore implements Store {
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec(SCHEMA);
+    this.migratedColumns = migrate(this.db);
   }
 
   upsertTurns(turns: readonly Turn[]): void {
@@ -71,8 +119,9 @@ export class SqliteStore implements Store {
       INSERT OR REPLACE INTO turns
         (uuid, session_id, ts, model, input_tokens, cache_read_tokens,
          cache_write_5m_tokens, cache_write_1h_tokens, output_tokens,
-         thinking_tokens, iterations, cwd, git_branch, source_file)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         thinking_tokens, iterations, entrypoint, is_sidechain,
+         cwd, git_branch, source_file)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
     this.db.exec("BEGIN");
     try {
@@ -80,7 +129,8 @@ export class SqliteStore implements Store {
         stmt.run(
           t.uuid, t.sessionId, t.ts, t.model, t.inputTokens, t.cacheReadTokens,
           t.cacheWrite5mTokens, t.cacheWrite1hTokens, t.outputTokens,
-          t.thinkingTokens, t.iterations, t.cwd, t.gitBranch, t.sourceFile,
+          t.thinkingTokens, t.iterations, t.entrypoint, t.isSidechain ? 1 : 0,
+          t.cwd, t.gitBranch, t.sourceFile,
         );
       }
       this.db.exec("COMMIT");
@@ -139,6 +189,8 @@ function rowToTurn(r: any): Turn {
     outputTokens: r.output_tokens,
     thinkingTokens: r.thinking_tokens,
     iterations: r.iterations,
+    entrypoint: r.entrypoint ?? null,
+    isSidechain: r.is_sidechain === 1,
     cwd: r.cwd,
     gitBranch: r.git_branch,
     sourceFile: r.source_file,
