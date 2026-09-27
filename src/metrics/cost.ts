@@ -16,13 +16,21 @@ import type { Turn } from "../ingest/types.ts";
 export interface PricingFile {
   schema_version: number;
   effective_date: string;
+  /** Denominator for every ratio in this file. */
+  ratio_scale: number;
   cache_multipliers: {
     cache_read: number;
     cache_write_5m: number;
     cache_write_1h: number;
   };
-  models: Record<string, { input: number; output: number }>;
+  /**
+   * Request-level repricing, keyed by the field name then the observed value.
+   * A value missing from a table is unknown, not neutral.
+   */
+  modifiers: Record<string, Record<string, number>>;
+  models: Record<string, { input: number; output: number; cache_read?: number }>;
   unknown_model_policy: string;
+  unknown_modifier_policy: string;
 }
 
 /** Per-model integer rates, in micro-dollars per 1M tokens. */
@@ -37,6 +45,9 @@ export interface ModelRates {
 export interface RateTable {
   effectiveDate: string;
   rates: Map<string, ModelRates>;
+  /** Ratio numerators over `ratioScale`, by modifier field then value. */
+  modifiers: Map<string, Map<string, number>>;
+  ratioScale: number;
 }
 
 /** Trailing dated-snapshot suffix, e.g. "-20251001". */
@@ -66,11 +77,18 @@ export function resolveRates(model: string, table: RateTable): ModelRates | null
 const MICRO = 1_000_000;
 
 /**
- * Derive the integer rate table once, at load. Cache tiers are multipliers on
- * base input (read 0.1x, 5m write 1.25x, 1h write 2.0x) rather than nine
- * separate published numbers, so a price change touches one field.
+ * Derive the integer rate table once, at load.
+ *
+ * Cache tiers are ratios on base input rather than nine published numbers, so
+ * a price change touches one field. The card sets cache-read per-model (0.1x
+ * standard, 0.05x on Opus 5.5, 0.025x on Fable 5.1), so a model may override
+ * it; the write tiers are uniform so far.
+ *
+ * Multipliers are integer-over-integer, divided once. The base rate is the
+ * only float, read from a human-authored decimal that matches the card.
  */
 export function buildRateTable(file: PricingFile): RateTable {
+  const scale = file.ratio_scale;
   const m = file.cache_multipliers;
   const rates = new Map<string, ModelRates>();
 
@@ -78,26 +96,72 @@ export function buildRateTable(file: PricingFile): RateTable {
     const inputMicro = Math.round(r.input * MICRO);
     rates.set(model, {
       input: inputMicro,
-      cacheRead: Math.round(inputMicro * m.cache_read),
-      cacheWrite5m: Math.round(inputMicro * m.cache_write_5m),
-      cacheWrite1h: Math.round(inputMicro * m.cache_write_1h),
+      cacheRead: ratio(inputMicro, r.cache_read ?? m.cache_read, scale),
+      cacheWrite5m: ratio(inputMicro, m.cache_write_5m, scale),
+      cacheWrite1h: ratio(inputMicro, m.cache_write_1h, scale),
       output: Math.round(r.output * MICRO),
     });
   }
 
-  return { effectiveDate: file.effective_date, rates };
+  const modifiers = new Map<string, Map<string, number>>();
+  for (const [field, table] of Object.entries(file.modifiers)) {
+    const byValue = new Map<string, number>();
+    for (const [value, num] of Object.entries(table)) {
+      if (typeof num === "number") byValue.set(value, num);
+    }
+    modifiers.set(field, byValue);
+  }
+
+  return { effectiveDate: file.effective_date, rates, modifiers, ratioScale: scale };
+}
+
+function ratio(value: number, numerator: number, scale: number): number {
+  return Math.round((value * numerator) / scale);
 }
 
 /**
- * Cost of one turn in micro-dollars, or null when the model is unknown.
+ * Combined modifier numerator for a turn, or null if any recorded value is
+ * unrecognised.
  *
- * null is load-bearing: an unrecognised model must surface as "cost
- * unavailable", never silently fall back to a default rate. A confidently
- * wrong number is worse than a visible gap.
+ * Modifiers stack multiplicatively per the published card. A field the source
+ * did not record is absent, not unknown — records predating `speed` carry no
+ * such field — and absent means unmodified. A field that IS recorded with a
+ * value we have no ratio for is the dangerous case, and it returns null.
+ */
+function modifierNumerator(turn: Turn, table: RateTable): number | null {
+  const observed: Array<[string, string | null]> = [
+    ["speed", turn.speed],
+    ["inference_geo", turn.inferenceGeo],
+  ];
+
+  let numerator = table.ratioScale;
+  for (const [field, value] of observed) {
+    if (value === null) continue;
+    const ratios = table.modifiers.get(field);
+    if (!ratios) return null;
+    const found = ratios.get(value);
+    if (found === undefined) return null;
+    numerator = (numerator * found) / table.ratioScale;
+  }
+  return numerator;
+}
+
+/**
+ * Cost of one turn in micro-dollars, or null when the model **or any recorded
+ * pricing modifier** is unknown.
+ *
+ * null is load-bearing in both cases. An unrecognised model must surface as
+ * "cost unavailable" rather than fall back to a default rate — and so must an
+ * unrecognised modifier, because a fast-mode turn priced at standard rates is
+ * a known model reported at half its true cost. Same confidently-wrong
+ * number, different door.
  */
 export function turnCostMicro(turn: Turn, table: RateTable): number | null {
   const r = resolveRates(turn.model, table);
   if (!r) return null;
+
+  const mod = modifierNumerator(turn, table);
+  if (mod === null) return null;
 
   // Accumulate the numerator, divide once. Thinking tokens are already inside
   // outputTokens and are deliberately not added again.
@@ -108,7 +172,7 @@ export function turnCostMicro(turn: Turn, table: RateTable): number | null {
     turn.cacheWrite1hTokens * r.cacheWrite1h +
     turn.outputTokens * r.output;
 
-  return Math.round(numerator / MICRO);
+  return Math.round((numerator * mod) / (MICRO * table.ratioScale));
 }
 
 /** Format micro-dollars for display. Never used in arithmetic. */

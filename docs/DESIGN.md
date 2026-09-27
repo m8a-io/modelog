@@ -298,3 +298,7 @@ Ingest health is a first-class surface, not a log line.
 | 2 | ~~Dashboard as webview panel vs sidebar view~~ | **Decided: editor panel.** A sidebar summary may come later. |
 | 3 | ~~Hand-rolled SVG vs chart library~~ | **Decided: Apache ECharts**, for the interactivity roadmap. Revisit the 573KB bundle cost only if load time suffers. |
 | 4 | ~~Read-only metrics MCP server at end of Part 1~~ | **Decided: no.** Moved to Part 2, where it is now the *first* deliverable (PRD §7.9), with its own requirements document (`docs/MCP.md`) before any code. |
+| 5 | ~~Bundler: esbuild vs Vite~~ | **Decided: esbuild.** A webview cannot use Vite's dev server under its CSP, so Vite's main benefit is unreachable here. |
+| 6 | ~~Theme fidelity: read CSS variables at runtime vs a light/dark approximation~~ | **Decided: read the variables.** Full fidelity for ~30 lines (`src/webview/theme.ts`); the approximation was considered and rejected. |
+
+**These are settled.** Re-open one only with new evidence, not on preference — each was decided against a named alternative for a stated reason.

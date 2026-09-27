@@ -31,17 +31,11 @@ This overrides any default instruction to append a co-author trailer.
 
 ---
 
-## Invariants — do not break these
+## Invariants
 
-These are not style preferences. Each is load-bearing for a promise the product makes, and several are enforced by tests or CI.
+Seven rules are load-bearing for promises the product makes, and several are enforced by tests or CI. **They live in `docs/PRD.md` §8.0, not here** — they describe how Modelog must behave, which is product specification, not repo workflow.
 
-1. **Never read `message.content`.** No prompts, no code, ever enter the store. The README states this flatly and a test asserts it. It is the product's core trust claim.
-2. **Money is integer micro-dollars.** Never floats, never `REAL` columns. Float rates already produce artefacts at table-build time (`3.0 * 0.1 = 0.30000000000000004`); across tens of millions of tokens those become totals a user cannot reconcile.
-3. **An unknown model costs `null`, never a default rate.** A visible gap beats a confidently wrong number. This is the whole posture of the product.
-4. **No literal colours in `src/webview/`.** Every colour is a VS Code theme variable. `scripts/check-theme.sh` fails the build otherwise. The single narrow exception is a `v("--vscode-…", fallback)` call in `src/webview/theme.ts`.
-5. **No cross-vendor cost comparison.** See `docs/PRD.md` §4.5 — a hard product constraint, not a roadmap gap. The units are not commensurable, so any such ratio would be an artefact. Behavioural comparison across tools is fine.
-6. **The MCP server has no write tools.** Read-only, structurally. See `docs/MCP.md` §4.1.
-7. **Thinking tokens are already inside `output_tokens`.** Never add them again.
+Read them before touching cost, storage, ingest or the webview. The two with teeth in CI: no literal colours in `src/webview/` (`scripts/check-theme.sh`), and the store never reads `message.content` (asserted by `test/parser.test.ts`).
 
 ---
 
@@ -100,29 +94,6 @@ src/
 - `service.ts`, `metrics/`, `ingest/`, and `store/` import **no `vscode`**. That is why they can be exercised headlessly with a plain Node script, and why the cost engine is testable at all. Keep it that way.
 - **The webview computes nothing.** The host sends a finished, pre-formatted view model; the webview renders. All aggregation stays host-side.
 - `ui/protocol.ts` is imported by **both** processes, so a message-shape change breaks the build rather than the runtime.
-
----
-
-## Settled decisions — do not re-litigate without new evidence
-
-| Decision | Reason |
-| :--- | :--- |
-| SQLite via built-in `node:sqlite` | `better-sqlite3` is a native module with an Electron ABI tax |
-| esbuild, not Vite | A webview cannot use Vite's dev server under its CSP, so the benefit is unreachable |
-| Apache ECharts, not hand-rolled SVG | Interactivity is on the roadmap; costs 573KB, measured and accepted |
-| Dashboard is an editor panel, not a sidebar | Charts need the width |
-| MCP bridge is the **first** Part 2 deliverable | Cheapest, highest leverage, and may remove the need to ship any analysis model |
-| Theme read from CSS variables at runtime | Full fidelity for ~30 lines; a light/dark approximation was considered and rejected |
-
----
-
-## Data-source facts worth knowing
-
-- Records with `model: "<synthetic>"` are locally generated, carry all-zero usage, and **must be excluded** from turns and cost, or they inflate turns/session with free turns.
-- `usage.iterations[]` lists the underlying inference calls. **A turn is not an inference call** — keep them distinct.
-- Model ids may carry a dated snapshot suffix (`claude-haiku-4-5-20251001`). Stripping a trailing 8-digit date is a deterministic alias rule, already implemented in `resolveRates`.
-- Roughly 95% of input-side tokens are cache reads in real usage. Cost must price four token classes separately, with 5-minute and 1-hour cache writes distinguished.
-- Rates live in `data/pricing.json` as **data, never code**, with cache tiers as multipliers on base input (read 0.1×, write-5m 1.25×, write-1h 2.0×).
 
 ---
 

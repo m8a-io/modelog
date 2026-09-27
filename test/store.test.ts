@@ -35,6 +35,7 @@ function turn(p: Partial<Turn> = {}): Turn {
     inputTokens: 1, cacheReadTokens: 2, cacheWrite5mTokens: 3,
     cacheWrite1hTokens: 4, outputTokens: 5, thinkingTokens: 6,
     iterations: 1, entrypoint: "claude-vscode", isSidechain: false,
+    speed: "standard", inferenceGeo: "not_available",
     cwd: "/w", gitBranch: "main", sourceFile: "f.jsonl",
     ...p,
   };
@@ -99,7 +100,10 @@ test("an existing pre-migration database gains the columns", { skip: !sqlite }, 
 
     const store = new SqliteStore(sqlite, t.path);
 
-    assert.deepEqual([...store.migratedColumns].sort(), ["entrypoint", "is_sidechain"]);
+    assert.deepEqual(
+      [...store.migratedColumns].sort(),
+      ["entrypoint", "inference_geo", "is_sidechain", "speed"],
+    );
 
     // The pre-existing row is readable, with the new fields as gaps.
     const rows = store.allTurns();
@@ -107,6 +111,10 @@ test("an existing pre-migration database gains the columns", { skip: !sqlite }, 
     assert.equal(rows[0]!.uuid, "old");
     assert.equal(rows[0]!.entrypoint, null);
     assert.equal(rows[0]!.isSidechain, false);
+    // A null modifier is "not recorded", which prices as unmodified — distinct
+    // from a recorded value we do not recognise, which prices as null.
+    assert.equal(rows[0]!.speed, null);
+    assert.equal(rows[0]!.inferenceGeo, null);
 
     // The cursor must be gone, or the scanner would skip the unchanged file
     // and the newly added columns would never be backfilled.

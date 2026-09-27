@@ -27,6 +27,16 @@ export interface Turn {
   iterations: number;
 
   /**
+   * Request-level pricing modifiers, recorded by the source per turn. Both
+   * reprice **every** token class, so a turn cannot be costed without them:
+   * `speed: "fast"` doubles Opus rates, `inferenceGeo: "us"` applies 1.1x.
+   * Null where the source record does not carry the field. An unrecognised
+   * value must yield a null cost, never a neutral ratio (PRD §8.2).
+   */
+  speed: string | null;
+  inferenceGeo: string | null;
+
+  /**
    * Which surface of the tool produced the turn — `claude-vscode` for the VS
    * Code extension, a different value for the CLI. Same tool, same billing,
    * same units, so segmenting on it is tier-2 comparable (PRD §4.5). Null

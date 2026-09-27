@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS turns (
   iterations            INTEGER NOT NULL,
   entrypoint            TEXT,
   is_sidechain          INTEGER NOT NULL DEFAULT 0,
+  speed                 TEXT,
+  inference_geo         TEXT,
   cwd                   TEXT,
   git_branch            TEXT,
   source_file           TEXT    NOT NULL
@@ -68,6 +70,8 @@ const ADDED_COLUMNS: ReadonlyArray<{ column: string; ddl: string }> = [
     column: "is_sidechain",
     ddl: "ALTER TABLE turns ADD COLUMN is_sidechain INTEGER NOT NULL DEFAULT 0",
   },
+  { column: "speed", ddl: "ALTER TABLE turns ADD COLUMN speed TEXT" },
+  { column: "inference_geo", ddl: "ALTER TABLE turns ADD COLUMN inference_geo TEXT" },
 ];
 
 /**
@@ -120,8 +124,8 @@ export class SqliteStore implements Store {
         (uuid, session_id, ts, model, input_tokens, cache_read_tokens,
          cache_write_5m_tokens, cache_write_1h_tokens, output_tokens,
          thinking_tokens, iterations, entrypoint, is_sidechain,
-         cwd, git_branch, source_file)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         speed, inference_geo, cwd, git_branch, source_file)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
     this.db.exec("BEGIN");
     try {
@@ -130,7 +134,7 @@ export class SqliteStore implements Store {
           t.uuid, t.sessionId, t.ts, t.model, t.inputTokens, t.cacheReadTokens,
           t.cacheWrite5mTokens, t.cacheWrite1hTokens, t.outputTokens,
           t.thinkingTokens, t.iterations, t.entrypoint, t.isSidechain ? 1 : 0,
-          t.cwd, t.gitBranch, t.sourceFile,
+          t.speed, t.inferenceGeo, t.cwd, t.gitBranch, t.sourceFile,
         );
       }
       this.db.exec("COMMIT");
@@ -191,6 +195,8 @@ function rowToTurn(r: any): Turn {
     iterations: r.iterations,
     entrypoint: r.entrypoint ?? null,
     isSidechain: r.is_sidechain === 1,
+    speed: r.speed ?? null,
+    inferenceGeo: r.inference_geo ?? null,
     cwd: r.cwd,
     gitBranch: r.git_branch,
     sourceFile: r.source_file,

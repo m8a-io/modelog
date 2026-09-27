@@ -13,6 +13,7 @@ function turn(p: Partial<Turn>): Turn {
     inputTokens: 0, cacheReadTokens: 0, cacheWrite5mTokens: 0,
     cacheWrite1hTokens: 0, outputTokens: 0, thinkingTokens: 0,
     iterations: 1, entrypoint: "claude-vscode", isSidechain: false,
+    speed: null, inferenceGeo: null,
     cwd: null, gitBranch: null, sourceFile: "f",
     ...p,
   };
@@ -153,4 +154,62 @@ test("unpriced turns are excluded from cost series rather than counted as zero",
 test("dayKey uses local time, not UTC", () => {
   const local = new Date(2026, 0, 15, 23, 30);
   assert.equal(dayKey(local.getTime()), "2026-01-15");
+});
+
+test("fast mode doubles the rate rather than being silently ignored", () => {
+  const base = turn({ model: "claude-opus-5", inputTokens: 1_000_000, speed: "standard" });
+  const fast = turn({ model: "claude-opus-5", inputTokens: 1_000_000, speed: "fast" });
+  const b = turnCostMicro(base, table)!;
+  const f = turnCostMicro(fast, table)!;
+  assert.equal(b, 5_000_000); // $5.00 per 1M input
+  assert.equal(f, 10_000_000); // published fast-mode rate is $10.00
+  assert.equal(f, b * 2);
+});
+
+test("an unrecognised modifier value yields null, never a neutral ratio", () => {
+  // The failure this guards: a known model, a rate we cannot justify. Pricing
+  // it at standard rates would report a confidently wrong number.
+  const t = turn({ model: "claude-opus-5", inputTokens: 1_000_000, speed: "turbo" });
+  assert.equal(turnCostMicro(t, table), null);
+  const g = turn({ model: "claude-opus-5", inputTokens: 1_000_000, inferenceGeo: "mars" });
+  assert.equal(turnCostMicro(g, table), null);
+});
+
+test("a modifier the source never recorded is absent, not unknown", () => {
+  // Records predating `speed` carry no such field; they must still price.
+  const t = turn({ model: "claude-opus-5", inputTokens: 1_000_000, speed: null });
+  assert.equal(turnCostMicro(t, table), 5_000_000);
+});
+
+test("inference_geo us applies 1.1x to every token class", () => {
+  const std = turn({
+    model: "claude-sonnet-5", inputTokens: 1_000_000, outputTokens: 1_000_000,
+    inferenceGeo: "global",
+  });
+  const us = turn({
+    model: "claude-sonnet-5", inputTokens: 1_000_000, outputTokens: 1_000_000,
+    inferenceGeo: "us",
+  });
+  assert.equal(turnCostMicro(std, table), 12_000_000); // $2 + $10
+  assert.equal(turnCostMicro(us, table), 13_200_000); // 1.1x
+});
+
+test("modifiers stack multiplicatively, as the rate card specifies", () => {
+  const t = turn({
+    model: "claude-opus-5", inputTokens: 1_000_000, speed: "fast", inferenceGeo: "us",
+  });
+  // $5 base -> x2 fast -> x1.1 geo = $11.00
+  assert.equal(turnCostMicro(t, table), 11_000_000);
+});
+
+test("cache-read is per-model where the card sets it per-model", () => {
+  const o55 = table.rates.get("claude-opus-5-5")!;
+  const o5 = table.rates.get("claude-opus-5")!;
+  const f51 = table.rates.get("claude-fable-5-1")!;
+  assert.equal(o5.cacheRead, 500_000); // 0.1x of $5.00
+  assert.equal(o55.cacheRead, 200_000); // 0.05x of $4.00
+  assert.equal(f51.cacheRead, 250_000); // 0.025x of $10.00
+  for (const r of [o5, o55, f51]) {
+    for (const v of Object.values(r)) assert.ok(Number.isInteger(v), `${v} not an integer`);
+  }
 });
