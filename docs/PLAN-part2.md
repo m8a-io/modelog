@@ -56,6 +56,39 @@ Five findings from the 2026-09-27 session that Phase 2 has to absorb. All are re
 
 ## Phase 2 tasks
 
+### 2.0 Answer known unknown #1 first — it is 2 minutes and it shapes Phase 3
+
+Does Claude Code pick up a newly registered MCP server **without a restart**? The answer decides whether `Modelog: Enable MCP Server` (Phase 3) can report success immediately or has to tell the user to reload. Finding out now costs nothing; finding out while writing a config writer costs a rewrite.
+
+Everything needed is already in place. `.mcp.json` sits in the repo root — **gitignored**, because it holds absolute home paths and this repo is public. If it is missing (fresh clone, or another machine), recreate it with the real store path:
+
+```json
+{
+  "mcpServers": {
+    "modelog": {
+      "command": "node",
+      "args": ["<repo>/dist/mcp-server.mjs"],
+      "env": { "MODELOG_DB": "<globalStorage>/modelog.modelog/modelog.db" }
+    }
+  }
+}
+```
+
+On this machine `<globalStorage>` is `~/.vscode-server/data/User/globalStorage` (Remote-WSL; a native install differs). Run `npm run build` first — the bundle must exist and be current.
+
+**Steps.** Confirm `bash scripts/mcp-handshake.sh` still answers, then start a Claude Code session in this repo and run `/mcp`.
+
+**Record four things**, because each feeds a Phase 3 decision:
+
+1. **Did `modelog` appear without reloading the window?** The answer to the unknown.
+2. **Was there an approval prompt, and what did it say?** `MCP.md` §7.3 requires Modelog to show the exact JSON and target file before writing. If Claude Code already prompts for a project-scoped `.mcp.json`, that is a precedent worth matching rather than inventing a different one.
+3. **Does it report connected with 0 tools, or treat a toolless server as an error?** If zero tools is an error state, 2.2 has to land before any real client test is meaningful.
+4. **Whether `node` resolved.** This is known unknown #4 answered for free — the client spawns `node` from its own environment, not the shell's.
+
+**If it fails,** the likely causes in order: a stale or missing `dist/mcp-server.mjs`; a wrong `MODELOG_DB` path (the server still starts and reports `no-data` on stderr, so check stderr before assuming the transport broke); `node` not on the client's `PATH`.
+
+**Done when:** all four answers are written into this document, replacing the known-unknowns rows they settle.
+
 ### 2.1 The envelope — do this first, once
 
 Implement `MCP.md` §8.7 in one module and route **every** tool through it:
@@ -135,10 +168,10 @@ Judge the answers and write down what the agent got wrong or had to guess. That 
 
 | # | Question | Find out by |
 | :-- | :--- | :--- |
-| 1 | Does Claude Code pick up a newly registered server without a restart? | Reload with `.mcp.json` present and run `/mcp`. Testable now, before Phase 3 is built. |
+| 1 | Does Claude Code pick up a newly registered server without a restart? | **Task 2.0** — do it first |
 | 2 | Will the agent call `get_definitions` before reasoning? | Phase 4; if not, the description needs rewriting |
 | 3 | How much agent context does a `list_sessions` response consume? | Phase 4 — may force `MCP.md` §11 Q3's cap sooner |
-| 4 | Is `node` reliably on `PATH` for VS Code-launched processes? | Phase 3 |
+| 4 | Is `node` reliably on `PATH` for VS Code-launched processes? | **Task 2.0** answers this for free — the client spawns `node` from its own environment |
 
 ## Explicitly not this session
 
@@ -146,4 +179,4 @@ Ollama, session labeling, work-log generation, the Copilot adapter, the `{amount
 
 ## Realistic scope
 
-2.1 plus 2.2 is a solid session on its own; 2.2's wording is the part that deserves unhurried attention. If time runs short, stop after 2.2 and test with the MCP Inspector (`npx @modelcontextprotocol/inspector node dist/mcp-server.mjs`) rather than starting 2.3 badly.
+2.0 is minutes; 2.1 plus 2.2 is then a solid session on its own; 2.2's wording is the part that deserves unhurried attention. If time runs short, stop after 2.2 and test with the MCP Inspector (`npx @modelcontextprotocol/inspector node dist/mcp-server.mjs`) rather than starting 2.3 badly.
