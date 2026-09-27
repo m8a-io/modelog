@@ -93,6 +93,7 @@
     "typecheck": "tsc --noEmit",
     "lint:theme": "./scripts/check-theme.sh",
     "check": "npm run typecheck && npm run lint:theme && npm test",
+    "pretest": "node scripts/check-node.mjs",
     "test": "node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/*.test.ts"
   },
   "devDependencies": {
