@@ -66,6 +66,17 @@ Not every comparison Modelog *could* render is one it *may* render. Comparabilit
 
 **Why cross-vendor cost is forbidden.** The units are not the same kind of thing. Claude Code bills tokens, which convert to currency at a published rate. Copilot bills *premium requests* against a monthly quota, with per-model multipliers and no token counts at all. Converting one into the other requires allocating a plan's fixed price across its included requests — an *allocation*, not a measurement — and marginal cost diverges sharply from average cost once a quota is exceeded. Any resulting ratio would be an artefact of the allocation method, not a property of the tools.
 
+> **Revised 2026-09-27, after measurement.** The reasoning above was challenged on a factual point: Copilot does price a turn in **credits** at a published rate, so a per-turn dollar figure would be a *measurement*, not the allocation this section assumed. That correction is accepted — the "allocation, not a measurement" argument is not why cross-vendor cost comparison is unavailable.
+>
+> It is unavailable for a blunter reason. Verification of `session-store.db` (§7.1) found **no model, token, cost or credit column anywhere in the schema**. Copilot's local store records *that* a turn happened and *what was said*, and nothing about what it consumed. There is no local cost figure to compare, correctly or otherwise, so the prohibition is currently moot rather than contested.
+>
+> Two points stand independently of any of this, and would still stand if a credit figure were found tomorrow:
+>
+> 1. **The in-quota/overage divergence.** A turn inside the included allowance has $0 marginal cost and `plan_price / allowance` average cost. A per-turn credit figure does not by itself say which a user should be shown.
+> 2. **Reason 2 below** — publishing quantitative comparative claims about a named third party's product — never depended on the unit at all.
+>
+> The live question is therefore open question 12: whether a credit or token figure is persisted anywhere on disk, or only rendered live and billed server-side. Until that closes, there is nothing to relax.
+
 **The two reasons, in order of weight:**
 
 1. **It would be wrong.** A confidently-wrong comparison destroys the trust the entire product depends on (§8.2). This alone settles it.
@@ -131,6 +142,18 @@ Record `type` values observed: `assistant`, `user`, `attachment`, `queue-operati
 - **A turn is not an inference call.** Each usage object carries an `iterations[]` array of the underlying calls. `turns/session` must define which it counts, consistently, and the dashboard must say which it means.
 
 > **Changed from v0.3.** v0.3 named GitHub Copilot's OTel export and `workspaceStorage/*/chatSessions/` as the Phase 1 source. Verification on the target machine found **zero** `chatSessions` directories across 55 workspaces — Copilot Chat has moved that state into `globalStorage/github.copilot-chat/session-store.db` — and the primary user does not use Copilot at all. Claude Code's JSONL is a supported, structured, on-disk artifact with model and token data already present, making it both the better first adapter and the one the author can dogfood daily.
+
+> **Copilot's local schema, verified 2026-09-27.** `globalStorage/github.copilot-chat/session-store.db` (25MB, `schema_version = 1`, macOS, VS Code) on a heavy day-to-day Copilot user:
+>
+> - `turns (id, session_id, turn_index, user_message, assistant_response, timestamp)` — 3,070 rows. **No model, token, cost or credit column exists in any table.**
+> - `sessions (id, cwd, repository, host_type, branch, summary, agent_name, agent_description, created_at, updated_at)` — 203 rows. `host_type` and `agent_name` are Copilot's analogue of Claude Code's `entrypoint`.
+> - `session_files (session_id, file_path, tool_name, turn_index, first_seen_at)` — 5,214 rows. Files touched per session, which Claude Code's JSONL does **not** expose.
+> - An FTS5 `search_index` over 3,070 rows of message content.
+> - Retention differs by table: sessions reach back to 2026-05-20, turns only to 2026-07-16. Turn-level history appears to be pruned or was added later — a local-first tool cannot assume the turn table spans the session table.
+>
+> **Consequences.** A Copilot adapter can support the §4.5 behavioural metrics (turns/session, sessions/day, duration, repo/branch context) over four months of real history. It **cannot** support per-model comparison, because model identity is never recorded — which makes §1's primary question unanswerable for Copilot from this source. It is also the inverse of Claude Code's JSONL for privacy: there, usage is separable from content; here, content is all there is, so an adapter must read only `timestamp`, `session_id` and `turn_index` and never select the two message columns (§8.1).
+>
+> **Where cost data might still live — unexplored.** Two installed third-party extensions already do this, and are the strongest leads: `netcomlabs-ai.copilot-cost-token-tracker` (ships a `pricing-cache.json` and a `session-cache/`) and `thewalking-dev.ai-insights` (writes a `copilot-session-snapshots.json`, and per §4 is known to read Copilot). Also unexamined: `github.copilot-chat/debug-logs/`, 22 `workspaceStorage/*/GitHub.copilot-chat/` directories, and a `copilotCli/` shim whose CLI may write its own logs. Tracked as open question 12.
 
 **Adapter architecture.** Capture is an OTel-shaped internal event model behind a per-source adapter interface. Copilot, Codex, and others become later adapters without touching the metrics or UI layers. Each adapter ships recorded fixtures pinned to the source version it was built against.
 
@@ -310,7 +333,10 @@ Every optional dependency (Ollama, a given assistant's logs, network) defaults c
 | # | Item | Affects |
 | :-- | :--- | :--- |
 | 1 | ~~Are `message.usage` values populated on every assistant record?~~ **Resolved 2026-09-20: yes, 507/507.** Cost is measured, not interpolated. | Closed |
-| 2 | Does `session-store.db` expose per-turn model and token data for a future Copilot adapter? | Later adapter |
+| 2 | ~~Does `session-store.db` expose per-turn model and cost data for a future Copilot adapter?~~ **Resolved 2026-09-27: no.** Schema verified (§7.1) — no model, token, cost or credit column in any table. Behavioural metrics are supportable; per-model comparison is not. | Closed |
+| 12 | **Is a per-turn credit or token figure persisted anywhere on disk, or only rendered live and billed server-side?** Not in `session-store.db`. Four unexplored locations listed in §7.1, the strongest being two installed extensions that already track Copilot cost. If the answer is "nowhere local", Copilot cost needs the GitHub billing export or an API call — an architecture decision about the local-first promise, not an adapter detail. | Later adapter |
+| 13 | **If a credit figure is found: how is quota position represented?** A turn inside the included allowance has $0 marginal cost and `plan_price / allowance` average cost, and the published rate is the overage price. Without quota position a per-turn Copilot cost is ambiguous by a wide margin. Bears directly on §4.5. | Later adapter |
+| 14 | Copilot's `session_files` + `tool_name` data has no Claude Code equivalent. Does a metric that exists for one adapter and not another belong in a cross-tool view at all, or only in a per-tool one? | Later adapter |
 | 3 | Claude Code JSONL is stable but undocumented; schema may change between versions. Mitigated by §7.1's drift rule and fixtures. | Part 1 |
 | 4 | Heuristic markers may misfire and erode trust. Mitigated by `provenance` labelling and post-core tuning. | Part 1 |
 | 5 | Terms-of-service review for reading each provider's local session data. | All |
