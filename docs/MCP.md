@@ -177,7 +177,11 @@ Every tool returns a common envelope:
   notes: string[] }
 ```
 
-`notes` carries caveats the agent should surface — subscription-mode estimation, unpriced turns present, a stale rate table. Money is returned as **both** integer micro-dollars (for arithmetic) and a formatted string (for display), so an agent never has to parse currency text.
+`notes` carries caveats the agent should surface — subscription-mode estimation, unpriced turns present, a stale rate table, and subagent turns being included in the figures (PRD §11 Q23).
+
+**Money is returned as `{ amount, unit, formatted }`** — an integer for arithmetic, an explicit unit, and a formatted string for display, so an agent never parses currency text and can never add two units together. *Revised 2026-09-27:* this said "integer micro-dollars" before PRD §8.2 was restated. The unit is named rather than implied because a second unit already exists in a source Modelog will ingest (Copilot reports nano-AIU), and because a cross-unit rate is an inference, not a measurement.
+
+**A cost of `null` has two causes** — an unrecognised model, or an unrecognised pricing modifier (`speed`, `inference_geo`). `notes` must say which applies; "unpriced turns" alone is no longer a sufficient explanation.
 
 ---
 
