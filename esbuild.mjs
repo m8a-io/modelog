@@ -13,7 +13,7 @@ const common = {
 };
 
 /**
- * Two targets, because the two halves of the extension run in different places.
+ * Three targets, because the parts run in different places.
  *
  *  - The extension host is a Node process inside VS Code. `vscode` is injected
  *    there at runtime, so it must be marked external or esbuild will try to
@@ -42,6 +42,20 @@ const targets = [
     ...common,
     entryPoints: ["src/webview/style.css"],
     outfile: "dist/webview.css",
+  },
+  {
+    ...common,
+    // The MCP server is spawned by a client as its own Node process, not by
+    // VS Code, so it targets real Node and never imports `vscode`. ESM with a
+    // .mjs extension avoids CJS interop friction with the MCP SDK; `node:*`
+    // builtins stay external so `node:sqlite` resolves at runtime rather than
+    // being bundled. See MCP.md §5.
+    entryPoints: ["src/mcp/server.ts"],
+    outfile: "dist/mcp-server.mjs",
+    platform: "node",
+    format: "esm",
+    target: "node24",
+    external: ["node:*"],
   },
 ];
 

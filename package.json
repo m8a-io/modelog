@@ -93,7 +93,7 @@
     "typecheck": "tsc --noEmit",
     "lint:theme": "./scripts/check-theme.sh",
     "check": "npm run typecheck && npm run lint:theme && npm test",
-    "pretest": "node scripts/check-node.mjs",
+    "pretest": "node scripts/check-node.mjs && node esbuild.mjs",
     "test": "node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/*.test.ts"
   },
   "devDependencies": {
@@ -103,6 +103,7 @@
     "typescript": "^5.6.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
     "echarts": "^6.1.0"
   }
 }

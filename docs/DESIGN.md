@@ -161,6 +161,10 @@ interface Store {
 }
 ```
 
+**The store is a durable superset of the logs, and that is deliberate.** Upserts never delete, so a turn survives the deletion of the JSONL file it came from. Observed live: 146 of 1,141 stored turns originate in a project directory that no longer exists. Keeping them is correct — the work happened and the money was spent; deleting a log does not un-spend it — and it is a real advantage over sources that prune (Copilot retains only the last 50 sessions' debug logs by default).
+
+**The consequence is a rule for migrations.** A migration that adds a column can only backfill rows whose source file still exists; for the rest the column keeps its default permanently. So **every added column must be meaningful when null**, and null must mean "not recorded" rather than a value. This holds for all four columns added so far: a null `entrypoint` is an unknown surface (never a guessed one), and a null `speed`/`inference_geo` is "the source did not record it", which prices as unmodified rather than as an unknown modifier (PRD §8.2). A column whose null would have to be *interpreted* needs a backfill strategy that does not depend on the logs, or it does not belong in the store.
+
 **Schema (SQLite path).** Two tables: `turns` keyed on the record `uuid` (making re-ingest idempotent by `INSERT OR REPLACE`), and `cursors` keyed on file path. Token counts and cost are `INTEGER` — cost in micro-dollars, per §8.2 of the PRD. Indexes on `(ts)` and `(model)` cover every §9 aggregate.
 
 Money and token counts stay integers all the way through SQLite; nothing is stored as `REAL`.
