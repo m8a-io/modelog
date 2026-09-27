@@ -181,6 +181,20 @@ Record `type` values observed: `assistant`, `user`, `attachment`, `queue-operati
 >
 > No cache-*write* token count reaches the span, though the telemetry vocabulary defines a `cache_creation.input_tokens` attribute. Immaterial for cost, since cost is measured.
 
+> **The cost model is verified against measured data (2026-09-27).** A captured `gpt-5.6-terra` agent turn — 3 `llm_request` spans — reconciles to **zero delta** on all three against the card:
+>
+> `cost = plain_input×input_price + cache_write_tokens×cache_write_price + cached_tokens×cache_read_price + output×output_price`
+>
+> | req | plain | write | read | out | predicted | measured | delta |
+> | --: | --: | --: | --: | --: | --: | --: | --: |
+> | 1 | 3 | 23,623 | 0 | 221 | 6.171550 | 6.171550 | 0 |
+> | 2 | 3 | 321 | 23,623 | 165 | 0.751310 | 0.751310 | 0 |
+> | 3 | 3 | 682 | 23,944 | 84 | 0.750780 | 0.750780 | 0 |
+>
+> This confirms three things at once: **1 AIU = 1 credit = 1 cent**; Copilot bills on exactly the same four token classes §8.2 prices; and `copilotUsageNanoAiu` is authoritative to the nano-unit. Total for the turn: 7.67364 credits ($0.077).
+>
+> **Cache-write tokens are billed but not reported.** The span omits them, yet they dominate a first request (23,623 of 23,626 input tokens here). They are recoverable as the *next* request's `cachedTokens` minus this one's — an inference the adapter must make explicitly and flag, since the final request in a session has no successor and its write count is unverifiable.
+
 > **Pro-plan entitlement is in the card.** `restricted_to` confirms `claude-opus-5`, `claude-opus-5.5`, `claude-fable-5.1`, `gpt-6-astra` and `gpt-5.6-sol` are unavailable on Pro — so a Copilot model comparison is bounded by plan, and the dashboard should say so rather than present an absent model as an unused one.
 >
 > AI Insights reads `main.jsonl` and **not** `models.json` in the same directory — which is why it falls back to a hardcoded model id while an authoritative rate card sits beside the file it parses.
@@ -378,6 +392,7 @@ Every optional dependency (Ollama, a given assistant's logs, network) defaults c
 | 2 | ~~Does `session-store.db` expose per-turn model and cost data?~~ **Resolved 2026-09-27: no** — but it is the wrong file. Model and token data live in `debug-logs/{sessionId}/main.jsonl`, gated on a Copilot setting (§7.1). | Closed |
 | 12 | ~~Is a per-turn credit or token figure persisted on disk?~~ **Resolved 2026-09-27.** Tokens and model: yes, in `debug-logs/`, opt-in and non-retroactive. Per-turn *credits*: nowhere — not on disk, not in the API, which is plan-level only. §4.5 revised accordingly. | Closed |
 | 13 | ~~How is quota position represented?~~ **Resolved: `overage_permitted` per quota, plan-level.** Enough to know *whether* a user is past quota, never enough to attribute a marginal cost to a specific turn. | Closed |
+| 21 | **`data/pricing.json` has no context-length tier, and 218 of 885 real turns (24.6%) exceed 200,000 prompt tokens** — max observed 309,561 on `claude-opus-5`. Copilot's card prices a `long_context` tier at **double** the base rates above a per-model `max_prompt_tokens` (272,000 for `gpt-5.6-terra`). If Anthropic applies a comparable long-context premium, every large-context Claude Code turn Modelog shows is **under-reported**. Verify against the current Anthropic rate card before changing any number. | **Part 1 — correctness** |
 | 20 | **Does `money is integer micro-dollars` survive a source whose native unit is finer?** Copilot reports nano-AIU; 1 micro-dollar = 100,000 nano-AIU, so ingesting into micro-dollars truncates a measured value. Widen the unit, or store per-adapter native integers and convert at display. | Part 1 / later adapter |
 | 18 | **Should Claude Code pricing be captured per-session rather than pinned?** Copilot writes its rate card beside each session, giving rates-as-of-that-turn. `data/pricing.json` is one global snapshot and silently reprices history when it is updated. Affects every historical cost figure Modelog shows. | Part 1 |
 | 19 | **Copilot's debug logs are capped at 50 retained sessions and 100MB each, and the enabling setting is tagged `onExp`** — server-side experimentation can flip it. Measured Copilot data must therefore be treated as present-or-absent per session, never assumed. | Later adapter |
