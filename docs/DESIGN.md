@@ -300,5 +300,23 @@ Ingest health is a first-class surface, not a log line.
 | 4 | ~~Read-only metrics MCP server at end of Part 1~~ | **Decided: no.** Moved to Part 2, where it is now the *first* deliverable (PRD §7.9), with its own requirements document (`docs/MCP.md`) before any code. |
 | 5 | ~~Bundler: esbuild vs Vite~~ | **Decided: esbuild.** A webview cannot use Vite's dev server under its CSP, so Vite's main benefit is unreachable here. |
 | 6 | ~~Theme fidelity: read CSS variables at runtime vs a light/dark approximation~~ | **Decided: read the variables.** Full fidelity for ~30 lines (`src/webview/theme.ts`); the approximation was considered and rejected. |
+| 7 | ~~Multi-tool dashboard: tab per tool, one colour-coded screen, or per-tool filters~~ | **Decided 2026-09-27: split by metric *kind*, not by tool.** See §16. |
 
 **These are settled.** Re-open one only with new evidence, not on preference — each was decided against a named alternative for a stated reason.
+
+---
+
+## 16. Multi-Tool Presentation
+
+Decided 2026-09-27. The driver is PRD §4.5, not layout preference.
+
+**Behaviour is shared; cost is per-tool and never merged.**
+
+- **Behaviour view — all tools together.** Turns/session, sessions/day, session duration, model switches, markers. These need no billing unit, so they aggregate honestly and a tool is just a legend and filter dimension. This is the comparison §4.5 explicitly permits, and the one competitors reading the same logs cannot make while they keep a window per tool.
+- **Cost view — one panel per tool, structurally unable to share an axis or a total.** Each panel states its billing mode in its header: Claude Code on API credits is cash; Copilot Pro is draw against a prepaid monthly allowance. A combined "you spent X" that added the two would be an artefact, and it is the most likely route by which Modelog could ship a confidently wrong number.
+
+**Why not a tab per tool** (the AI Insights approach): it is safe on cost but forfeits cross-tool behavioural comparison entirely — it throws away the defensible half of §4.5 to avoid the forbidden half.
+
+**Why not one screen with colour coding or per-tool filters:** both are correct only while a single tool is selected. Correctness that depends on the user's filter state is not correctness. Splitting by metric kind makes the constraint structural: there is no view in which two billing units can meet.
+
+**Implementation note.** This shapes `ui/protocol.ts`: `ViewState` grows a per-tool cost collection rather than a single `totals.total`, and the behavioural aggregates carry a tool dimension. Money keeps its unit (PRD §8.2), so the webview cannot sum across panels even by accident — it receives pre-formatted strings per panel and no cross-tool total to render.
