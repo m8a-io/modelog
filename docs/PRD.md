@@ -66,13 +66,26 @@ Not every comparison Modelog *could* render is one it *may* render. Comparabilit
 
 **Why cross-vendor cost is forbidden.** The units are not the same kind of thing. Claude Code bills tokens, which convert to currency at a published rate. Copilot bills *premium requests* against a monthly quota, with per-model multipliers and no token counts at all. Converting one into the other requires allocating a plan's fixed price across its included requests — an *allocation*, not a measurement — and marginal cost diverges sharply from average cost once a quota is exceeded. Any resulting ratio would be an artefact of the allocation method, not a property of the tools.
 
-> **Revised 2026-09-27, after reading the competitor's source.** This section was challenged on a factual point — Copilot prices a turn in credits at a published rate, so a per-turn dollar figure would be a *measurement*, not an allocation. Investigation says the original argument holds, for the reason it gave, with better evidence than it had:
+> **Revised again 2026-09-27, after finding Copilot's rate card on disk.** This section's factual premise — that Copilot carries "no token counts at all" and that its cost can only be *allocated* — is **wrong, and the correction is larger than first thought.**
 >
-> - **A per-turn credit figure is not recorded anywhere.** Not in `session-store.db`, not in the debug logs, and not in the API. The only real credit data is `api.github.com/copilot_internal/user` — undocumented, authenticated, and **plan-level only**: entitlement, remaining, reset date, overage permitted. No per-turn attribution exists to read.
-> - **What *is* available locally is tokens** (§7.1), and Copilot does not bill by tokens. Pricing a Copilot turn in dollars therefore means allocating a plan's fixed price across its quota — the allocation this section always said it was.
-> - **The in-quota/overage divergence is now confirmed in the data model itself.** `overage_permitted` is a per-quota flag, so marginal cost genuinely switches at the quota boundary rather than being a theoretical concern.
+> `debug-logs/{sessionId}/models.json` (§7.1) is a 43-model, cross-vendor, per-token rate card written to local disk, denominated in credits per 1M tokens, with separate `input_price`, `output_price`, `cache_price` and `cache_write_price`. Calibrated against `data/pricing.json`, **1 credit = 1 cent exactly**:
 >
-> The correction stands on one narrower point: credits *are* a real per-turn unit at the service level, so the units are not incommensurable in principle — only unavailable in practice. If GitHub ever exposed per-turn credits locally, reason 1 below would need re-arguing on its merits. **Reason 2 would not**, having never depended on the unit.
+> | Model | Copilot card | Modelog USD/1M |
+> | :--- | :--- | :--- |
+> | `claude-sonnet-5` | 200 / 1000 | $2.00 / $10.00 |
+> | `claude-haiku-4.5` | 100 / 500 | $1.00 / $5.00 |
+> | `claude-opus-4.7` | 500 / 2500 | $5.00 / $25.00 |
+>
+> The card's own cache tiers are 0.10× and 1.25× on base input — the same multipliers §8.2 derives — which independently corroborates Modelog's rate table. A per-turn Copilot cost is therefore **exactly computable from local data**: `llm_request` token counts × this card. It is a measurement, not an allocation, and that is presumably what Copilot's own per-turn hover tooltip renders.
+>
+> **What this means for the constraint.** The units are commensurable after all: both tools price tokens, and for Anthropic models Copilot's card matches the vendor's published rates to the cent. Tier 3 cannot be justified on incommensurable units any more.
+>
+> **The surviving distinction is not vendor, it is billing mode.** A Pro subscriber's credits are drawn against an included monthly allowance, so credits consumed is a *rate-card* figure — "what this turn would cost at list" — not cash out of pocket. But Modelog already faces exactly this for Claude Code on a Max subscription, and already models it (`ingest/billing.ts`, `detectBilling`). So the honest axis is **metered vs. prepaid**, which cuts *across* vendors rather than between them:
+>
+> - Rate-card cost vs rate-card cost — commensurable, and now measurable for both tools.
+> - Cash-out-of-pocket across different billing modes — not commensurable, and never was, *within* a vendor as much as across.
+>
+> **This is not yet a decision to relax the constraint, and reason 2 below is untouched by any of it** — publishing quantitative comparative claims about a named third party's product still needs legal review, and that reason never depended on units. Tracked as open question 16.
 
 **The two reasons, in order of weight:**
 
@@ -148,9 +161,13 @@ Record `type` values observed: `assistant`, `user`, `attachment`, `queue-operati
 > - An FTS5 `search_index` over 3,070 rows of message content.
 > - Retention differs by table: sessions reach back to 2026-05-20, turns only to 2026-07-16. Turn-level history appears to be pruned or was added later — a local-first tool cannot assume the turn table spans the session table.
 >
+> **Copilot's local rate card — found 2026-09-27.** Beside `debug-logs/{sessionId}/main.jsonl` sits **`models.json`**: 43 models across Anthropic, OpenAI, Google, Microsoft and Moonshot, each with `billing.token_prices.{default,long_context}` carrying `input_price`, `output_price`, `cache_price`, `cache_write_price` per `batch_size` of 1M tokens, plus `restricted_to` listing the plans entitled to the model. Denominated in credits, where 1 credit = 1 cent (calibration in §4.5). Models included at no premium cost price at 0. `cache_write_price` is non-zero only for Anthropic models, matching those vendors' actual billing.
+>
+> AI Insights reads `main.jsonl` and **not** `models.json` in the same directory — which is why it falls back to a hardcoded model id while an authoritative rate card sits beside the file it parses.
+
 > **Where model and token data actually live — resolved 2026-09-27 from AI Insights' source (§4).** `session-store.db` is the wrong file. Real per-request data is written to **`workspaceStorage/{hash}/GitHub.copilot-chat/debug-logs/{sessionId}/main.jsonl`** as `llm_request` events carrying `model`, `inputTokens`, `outputTokens` and `cachedTokens`. The companion `transcripts/{sessionId}.jsonl` holds conversation content and no usage data at all.
 >
-> Event shape, from that parser: `{"type":"llm_request","ts":<ms>,"attrs":{"model","inputTokens","outputTokens","cachedTokens"}}`. **Note what is absent** — there is no cache-*write* count (only reads), no thinking-token count, and no key joining a request to a user turn, so the competitor buckets `llm_request` events onto the nearest preceding interaction by timestamp. A Copilot adapter could therefore support per-model token comparison, but **not** Modelog's four-class cost engine (§8.2), which prices 5-minute and 1-hour cache writes separately. Since Copilot does not bill by tokens either way (§4.5), that is moot for cost and matters only for context-efficiency metrics.
+> Event shape, as far as that parser reads it: `{"type":"llm_request","ts":<ms>,"attrs":{"model","inputTokens","outputTokens","cachedTokens"}}`. Those are the four fields *AI Insights extracts*, not necessarily all the event carries — `models.json` prices cache writes, so a cache-write count may well be present and simply unread. **Unverified**: the only `main.jsonl` available locally holds a single `session_start` event. There is also no key joining a request to a user turn, so the competitor buckets events onto the nearest preceding interaction by timestamp — a heuristic join, not a real foreign key. Resolving both needs one real captured session (open question 17).
 >
 > **It is gated on a Copilot setting that is off by default:** `github.copilot.chat.agentDebugLog.fileLogging`. Real data exists only for sessions recorded *after* a user enables it.
 >
@@ -341,6 +358,8 @@ Every optional dependency (Ollama, a given assistant's logs, network) defaults c
 | 2 | ~~Does `session-store.db` expose per-turn model and cost data?~~ **Resolved 2026-09-27: no** — but it is the wrong file. Model and token data live in `debug-logs/{sessionId}/main.jsonl`, gated on a Copilot setting (§7.1). | Closed |
 | 12 | ~~Is a per-turn credit or token figure persisted on disk?~~ **Resolved 2026-09-27.** Tokens and model: yes, in `debug-logs/`, opt-in and non-retroactive. Per-turn *credits*: nowhere — not on disk, not in the API, which is plan-level only. §4.5 revised accordingly. | Closed |
 | 13 | ~~How is quota position represented?~~ **Resolved: `overage_permitted` per quota, plan-level.** Enough to know *whether* a user is past quota, never enough to attribute a marginal cost to a specific turn. | Closed |
+| 16 | **Does §4.5's tier 3 survive, now that units are commensurable?** The prohibition can no longer rest on incommensurable units; the real axis is metered vs. prepaid, which cuts across vendors. Reason 2 (comparative claims about a named third party) is untouched and still needs legal review. A product decision, not a technical one. | All |
+| 17 | **What does a real `llm_request` event actually contain?** Only the four fields AI Insights reads are known. A cache-write count may be present and unread, which would let the §8.2 four-class engine work on Copilot data. Needs one captured session with `agentDebugLog.fileLogging` on. | Later adapter |
 | 15 | **Does Modelog ask users to enable `github.copilot.chat.agentDebugLog.fileLogging`?** It is the only route to measured Copilot data, and it writes full prompts and code to unencrypted local files — in tension with §8.1's central claim. Options: never prompt and accept a permanent gap; prompt once with the trade-off stated; or read the logs only where they already exist. Decide before any Copilot adapter ships, not during. | Later adapter |
 | 14 | Copilot's `session_files` + `tool_name` data has no Claude Code equivalent. Does a metric that exists for one adapter and not another belong in a cross-tool view at all, or only in a per-tool one? | Later adapter |
 | 3 | Claude Code JSONL is stable but undocumented; schema may change between versions. Mitigated by §7.1's drift rule and fixtures. | Part 1 |
