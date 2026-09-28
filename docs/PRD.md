@@ -342,6 +342,50 @@ Product usage metrics, strictly opt-in, incentivized by unlocking a "Global Benc
 
 Marketing site, documentation, enterprise signup and billing. Scoped separately.
 
+### Cross-Cutting — Distribution & Environments
+
+**Goal:** make Modelog install cleanly and behave honestly on machines that are not the one it was built on.
+
+**Sequencing:** these are numbered 7.15–7.17 to avoid renumbering §7.11–§7.14, which are cross-referenced. They are *scheduled between Part 2 and Part 3* — Part 2's MCP bridge is what makes install UX load-bearing, and Part 3's commercial surface should not be built on untested platform assumptions.
+
+Findings so far, with their verification status, live in `docs/INSTALL-ux.md`. That document is the reference; the phases below are the work.
+
+#### 7.15 Install & First-Run UX
+
+There is **no installation-time hook in VS Code** — no `postinstall`, no `onInstall` event. Everything a user might expect "during installation" happens on *first activation*, made idempotent via `context.globalState`. This constraint shapes the whole phase; see `INSTALL-ux.md` §1.
+
+Deliverables:
+
+- A `contributes.walkthroughs` entry for discovery, plus at most one first-activation prompt for the opt-ins. Not a modal wizard — both optional features default cleanly to off (§8), so nothing is broken by a user who never sees the prompt, and a walkthrough stays findable where a dismissed toast does not.
+- **MCP registration split into two targets.** `vscode.lm.registerMcpServerDefinitionProvider` for VS Code's own MCP client, which writes no config files and can run the server on the editor's Node via `process.execPath`; config-file writing for Claude Code, which reads its configuration at session start only and therefore must never be told it is connected immediately. `INSTALL-ux.md` §2.
+- **Three-state Ollama detection** — absent, reachable-with-no-models, reachable-with-models. The middle state must not be reported as "not found"; the remedy there is pulling a model. `INSTALL-ux.md` §3.
+- Raising `engines.vscode` from `^1.90.0`, once the floor for the MCP provider API is established rather than guessed.
+
+**Boundary:** detection is not enablement. Probing `localhost:11434` crosses nothing and is already sanctioned by §7.8. *Using* Ollama enters the content boundary and requires explicit opt-in. Likewise, MCP registration writes outside Modelog's own storage and stays an explicit confirmed action per `MCP.md` §7.3 — never a side effect of clicking through onboarding.
+
+#### 7.16 Environment Matrix Validation
+
+Every platform claim to date was measured on a single configuration (Remote-WSL, VS Code 1.138). This phase replaces assumption with measurement on the rest.
+
+| Environment | The specific question to answer |
+| :--- | :--- |
+| macOS, GUI-launched | GUI processes inherit no shell `PATH` — no nvm, no Homebrew. Does the Claude Code registration path degrade correctly instead of failing opaquely? |
+| Windows, no WSL | `process.execPath` is `Code.exe`, not a node binary. **Does the editor's-Node technique hold at all?** This is the highest-value unknown, because it underpins §7.15's config-free path |
+| Remote-SSH / Dev Container | Remote-host assumptions on a non-WSL remote: `localhost` is the remote, log paths are the remote filesystem's |
+| Coder | Deferred to §7.17 |
+
+**Done when** each row is either verified or has a recorded, specific failure mode — and `INSTALL-ux.md`'s `[untested]` tags are replaced with results. A row that fails is a successful outcome for this phase; an untested row shipped as a claim is not.
+
+#### 7.17 m8a / Coder Integration
+
+Running Modelog inside m8a's Coder-based remote environments, which is expected to need changes **on both sides** — the extension, and plausibly the platform's environment definition too.
+
+Kept as its own phase deliberately: it couples Modelog to another system's roadmap, and folding it into §7.16 would let platform work block plain cross-platform validation.
+
+Known inputs from `INSTALL-ux.md` §4: the extension host runs on the remote workspace, so `~/.claude/projects` and `localhost:11434` both resolve there rather than on the user's laptop. `vscode.env.remoteName` and `Extension.extensionKind` are the detection primitives. Whether Modelog should declare a preferred `extensionKind` is open.
+
+Scope to settle when the phase opens: whether Coder workspaces are expected to carry assistant logs at all, and if so whether the store should live in the workspace or in the user's persistent home.
+
 ---
 
 ## 8. Non-Functional Requirements

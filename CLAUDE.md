@@ -13,6 +13,7 @@ Read these before substantial work:
 | `docs/PRD.md` | Product requirements — what and why |
 | `docs/DESIGN.md` | Part 1 technical design — how |
 | `docs/MCP.md` | MCP bridge requirements (Part 2) |
+| `docs/INSTALL-ux.md` | How Modelog installs and activates; MCP's two registration targets; the environment matrix. Claims are tagged `[verified]` / `[untested]` |
 | `docs/PLAN-part2.md` | **Start here** — sequenced plan for the next session |
 
 ---

@@ -89,6 +89,30 @@ On this machine `<globalStorage>` is `~/.vscode-server/data/User/globalStorage` 
 
 **Done when:** all four answers are written into this document, replacing the known-unknowns rows they settle.
 
+---
+
+#### 2.0 — Answers (measured 2026-09-28, Claude Code extension `2.1.251`, Remote-WSL)
+
+Method: rather than reading `/mcp` output, a throwaway probe MCP server (one tool, `probe_heartbeat`, dependency-free raw JSON-RPC) was registered in `.mcp.json` **while a session was already running**, and the process table plus a spawn log were watched. Reverted afterwards.
+
+**1. Does a running session pick up a newly registered server? No.**
+
+`.mcp.json` gained a second server at 05:56:41; the client (pid 1064) had been running since the previous 14:38:52. The probe was never spawned — no process, nothing in its spawn log, and its tool never entered the model's tool list. Config is read **at session start only**.
+
+The complementary half is also confirmed: `modelog` itself was spawned at 14:38:52, the same second as the client, i.e. registration present at launch *is* honoured.
+
+> **Phase 3 consequence.** `Modelog: Enable MCP Server` **cannot report success immediately.** After writing the config it must tell the user the server appears in their *next* session. Do not write a "connected" affirmation, and do not poll for the server to appear — it will not.
+
+**2. Approval prompt — still open.** Not settled: because the config was never re-read, no prompt could fire. Answering it needs one fresh session with an unapproved server entry present at launch. Left for whenever that is convenient; it only affects whether `MCP.md` §7.3's confirmation UI matches an existing precedent or invents one.
+
+**3. A toolless server reports connected, not an error.** The running `modelog` returns `{"tools": []}` and is a healthy connected server — its `instructions` string is delivered into the model's context. **2.2 does not have to land before client testing is meaningful.**
+
+**4. `node` resolved — but the result argues *for* Phase 3's check, not against it.**
+
+The client spawned `/home/scott/.nvm/versions/node/v24.21.0/bin/node`, resolved from the `PATH` inherited by `…/anthropic.claude-code-2.1.251-linux-x64/resources/native-binary/claude`, which contains `/home/scott/.nvm/versions/node/v24.21.0/bin`. `MODELOG_DB` passed through from the `env` block intact.
+
+So the MCP server is spawned by **the extension's own binary with the extension's environment** — and here that environment has nvm on `PATH` only because this VS Code server was launched from a shell where nvm had initialised. A GUI-launched native install, or a later `nvm alias default`, resolves differently or not at all. Read this as *"it happened to work on one machine"*, not *"node is reliably on `PATH`"*; the Phase 3 `node` check stays load-bearing.
+
 ### 2.1 The envelope — do this first, once
 
 Implement `MCP.md` §8.7 in one module and route **every** tool through it:
@@ -148,11 +172,20 @@ Tool input schemas are plain JSON Schema in the `tools/list` response — no zod
 
 ---
 
-## Phase 3 — Registration (unchanged, still after Phase 2)
+## Phase 3 — Registration (**revised 2026-09-28** — read `INSTALL-ux.md` first)
 
-Write `mcp-server.mjs` into `globalStorageUri` on activation when the content hash differs; `Modelog: Enable MCP Server` checks `node` on `PATH`, shows the exact JSON and target file, confirms, backs up, writes; `Modelog: Disable` removes only the `modelog` entry; Copy Configuration for every other client.
+The description below was written as one job. It is **two targets with two different mechanisms**, and only one of them writes a config file. Full detail in `docs/INSTALL-ux.md` §2; the short version:
+
+- **Target A — VS Code's own MCP client.** `vscode.lm.registerMcpServerDefinitionProvider` plus a `contributes.mcpServerDefinitionProviders` manifest entry. **No config file writing, and no `node` on `PATH` required** — the server can run on the editor's Node via `process.execPath`. Requires raising `engines.vscode` from `^1.90.0`; the exact floor is not yet established.
+- **Target B — Claude Code.** The config writing described below, still needed, because the provider API does not feed Claude Code.
+
+**Target B's copy must not claim success.** Task 2.0 settled that Claude Code reads MCP config at session start only, so after writing, the command tells the user the server appears in their *next* session — and does not poll for it.
+
+Target B, as originally planned: write `mcp-server.mjs` into `globalStorageUri` on activation when the content hash differs; `Modelog: Enable MCP Server` checks `node` on `PATH`, shows the exact JSON and target file, confirms, backs up, writes; `Modelog: Disable` removes only the `modelog` entry; Copy Configuration for every other client.
 
 **One local fact for this phase:** there is no `claude` CLI on this machine, and `~/.claude.json` holds per-project `mcpServers` under `projects["<abs path>"]`. Testing has used a gitignored project-scoped `.mcp.json` instead, deliberately — a half-written writer that corrupts `~/.claude.json` remains the worst outcome available here.
+
+**Not in this phase:** the first-run/walkthrough UX, cross-platform validation, and Coder/m8a support. Those are PRD §7.15, §7.16 and §7.17 respectively, scheduled after Part 2.
 
 ## Phase 4 — The actual test
 
@@ -168,14 +201,17 @@ Judge the answers and write down what the agent got wrong or had to guess. That 
 
 | # | Question | Find out by |
 | :-- | :--- | :--- |
-| 1 | Does Claude Code pick up a newly registered server without a restart? | **Task 2.0** — do it first |
+| ~~1~~ | ~~Does Claude Code pick up a newly registered server without a restart?~~ | **Settled 2026-09-28: no — config is read at session start only.** See 2.0 Answers. |
 | 2 | Will the agent call `get_definitions` before reasoning? | Phase 4; if not, the description needs rewriting |
 | 3 | How much agent context does a `list_sessions` response consume? | Phase 4 — may force `MCP.md` §11 Q3's cap sooner |
-| 4 | Is `node` reliably on `PATH` for VS Code-launched processes? | **Task 2.0** answers this for free — the client spawns `node` from its own environment |
+| 4 | Is `node` reliably on `PATH` for VS Code-launched processes? | **Partly settled 2026-09-28: it resolved here, to nvm's node, via the extension binary's inherited `PATH` — but for a machine-specific reason. Not generalisable; keep the Phase 3 check.** See 2.0 Answers. |
+| 5 | Does adding an unapproved server to `.mcp.json` prompt for approval, and what does the prompt say? | Was task 2.0's question 2; unanswerable there because config is never re-read mid-session. Needs one fresh session. Affects `MCP.md` §7.3 only |
 
 ## Explicitly not this session
 
 Ollama, session labeling, work-log generation, the Copilot adapter, the `{amount, unit}` refactor beyond the envelope, anything in Part 3. Also not Phase 0.1's session history table unless Phase 2 finishes early.
+
+Also explicitly **not** this session, now that they have phases of their own: install and first-run UX (PRD §7.15), cross-platform environment validation (§7.16), and m8a/Coder integration (§7.17).
 
 ## Realistic scope
 
