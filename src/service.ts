@@ -3,7 +3,14 @@ import { join } from "node:path";
 import { createStore, type Store } from "./store/index.ts";
 import { scan } from "./ingest/scanner.ts";
 import { buildRateTable, formatMicroUsd, type RateTable, type PricingFile } from "./metrics/cost.ts";
-import { modelRows, totals, modelSwitches, filterByRange, dailySeries, dayKey } from "./metrics/aggregate.ts";
+import {
+  modelRows,
+  totals,
+  developerModelSwitches,
+  filterByRange,
+  dailySeries,
+  dayKey,
+} from "./metrics/aggregate.ts";
 import type { ViewState, ModelRowView, ChartData } from "./ui/protocol.ts";
 import { detectBilling, billingCopy, type BillingInfo } from "./ingest/billing.ts";
 import type { Turn } from "./ingest/types.ts";
@@ -122,7 +129,7 @@ export class ModelogService {
 
     const chart = this.buildChart(turns);
 
-    const switches = modelSwitches(turns).map((s) => ({
+    const switches = developerModelSwitches(turns).map((s) => ({
       when: new Date(s.ts).toLocaleString(),
       label: `${s.from} → ${s.to}`,
       intraSession: s.intraSession,
@@ -156,7 +163,10 @@ export class ModelogService {
     const yMax = niceCeiling(max);
 
     const dayIndex = new Map(days.map((d, i) => [d, i]));
-    const switches = modelSwitches(turns)
+    // Chart markers use the developer's switches for the same reason the list
+    // does; the cost series above deliberately keeps every turn, including
+    // subagent ones, because that spend is real.
+    const switches = developerModelSwitches(turns)
       .map((s) => ({ dayIndex: dayIndex.get(dayKey(s.ts)) ?? -1, label: `${s.from} → ${s.to}` }))
       .filter((s) => s.dayIndex >= 0);
 

@@ -163,6 +163,8 @@ Prose in the response is **declarative, never imperative** (§4.2): it states wh
 
 Costs appear only within a single vendor's data. If the store ever holds multiple vendors, rows are grouped by vendor and no cross-vendor ratio is emitted (PRD §4.5).
 
+**Implemented as shape, not policy (2026-10-04).** Rows are nested under a `vendors[]` group *always*, even for a single vendor, and `relativeToCheapest` is computed against a baseline taken inside one group. Invariant 5 therefore cannot be violated by a handler forgetting it — there is no cross-group baseline to divide by. A note fires only when more than one vendor is actually present.
+
 ### 8.4 `modelog_list_sessions`
 
 `{ days? | from?, to?, model?, branch?, limit? }` → sessions with id, start, end, duration, models used, turn count, cost, repo/branch. Default `limit` 50, hard cap 500.
@@ -172,6 +174,10 @@ Costs appear only within a single vendor's data. If the store ever holds multipl
 `{ days? | from?, to? }` → observed anchors, currently model switches: timestamp, from, to, and whether the switch was intra-session.
 
 Every marker carries its `provenance` (PRD §6). v1 returns `observed` only; when inferred markers ship they are labelled as such so an agent can weight them differently.
+
+**Subagent turns are excluded before switches are detected — a correctness fix, not a preference (added 2026-10-04).** A marker anchors something the *developer* did. A subagent dispatch changes the model without the developer choosing anything, and because control returns to the original model afterwards, **each isolated subagent turn manufactures two spurious switches**. Measured on a real store: 29 sidechain turns out of 1,603 (1.8% of turns) produced 2 of 6 reported switches — a third of all markers were noise. The count excluded is returned as `sidechainTurnsExcluded` and stated in `notes`, so the filtering is visible rather than silent.
+
+> **The dashboard had the same defect and was fixed in the same change.** Both surfaces now call `developerModelSwitches()`, so they cannot drift on what a switch means; the raw `modelSwitches()` primitive remains so the exclusion stays visible at the call site. On the real store the dashboard's all-time count fell from 6 to 4. Only switch *detection* excludes subagent turns — the cost series still counts them, because that spend is real.
 
 ### 8.6 `modelog_get_work_log` *(deferred)*
 
@@ -228,5 +234,5 @@ Every tool returns a common envelope:
 | :-- | :--- | :--- |
 | 1 | Expose definitions as an MCP *resource* in addition to a tool? | Tool is universally supported; add the resource only if clients handle it well |
 | ~~2~~ | ~~Should the server read the rate table from `data/pricing.json` in the extension dir, or a copy in `globalStorageUri`?~~ | **Settled 2026-10-04: neither — it is compiled into the bundle.** See `src/mcp/rates.ts`. The leaning (a copy beside the DB) predated the knowledge that §7.1 already rewrites `mcp-server.mjs` into `globalStorageUri` on a content-hash change, so a price change reaches the user by the same route either way. A second copy on disk adds a failure mode the envelope cannot express (DB present, pricing absent) and could disagree with the copy the dashboard reads — the drift risk §5 cites as the reason the server imports the metrics modules rather than restating them. Verified: esbuild inlines the JSON, and the derived rates match `test/cost.test.ts` exactly. |
-| 3 | Per-call result-size cap? | Yes — large `list_sessions` responses waste an agent's context; cap and paginate |
+| 3 | Per-call result-size cap? | **Largely settled 2026-10-04: the cap exists and the sizes are small.** `list_sessions` defaults to 50 with a hard cap of 500; a clamp and any truncation are both disclosed in `notes`, and `matched` always reports the pre-limit count so a partial page cannot read as the whole picture. Measured on a real store: `get_summary` 736 B, `compare_models` 1.1 kB, `list_sessions` at the 50 default 2.6 kB (~650 tokens), `get_definitions` 6.3 kB (~1,570 tokens). Definitions is the largest response by far, and it is the one an agent should call once per session. No pagination cursor yet — revisit only if a real store produces a page that approaches the 500 cap. |
 | 4 | Surface `entrypoint` (CLI vs IDE) as a filter dimension? | Yes, once Part 1 exposes it — it is nearly free and enables a genuinely commensurable comparison (PRD §4.5, tier 2) |

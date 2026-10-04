@@ -27,7 +27,8 @@ bash scripts/mcp-handshake.sh                 # expect: initialize reply + {"too
 | Phase 1 — MCP skeleton, stdio, read-only store | **Done** (`962d2ce`) |
 | Phase 2.1 — the envelope | **Done** (`dfb6b5d`) |
 | Phase 2.2 — `get_definitions` | **Done** — see 2.2 below |
-| Phase 2 — remaining tools (2.3) and wiring (2.4) | Next |
+| Phase 2.3 — the query tools | **Done** — see 2.3 below |
+| Phase 2.4 — wiring onto the `Server` | Next, and small: handlers and schemas already exist |
 | Phase 3 — registration | Unchanged, still after Phase 2 |
 
 **What exists to build on:**
@@ -173,6 +174,21 @@ Two things to get right:
 
 **Done when:** each handler has unit tests over a fixture store run under `node --test`, plus the three envelope states asserted for each.
 
+#### 2.3 — Done 2026-10-04
+
+`src/mcp/tools.ts` — all four handlers plus `get_definitions` behind one `callTool` dispatcher, with the `tools/list` surface (`TOOLS`) declared and asserted to match what the dispatcher accepts. 42 tests in `test/tools.test.ts`. Suite: 140 tests, 0 failures. Verified against the real store, not just the fixture.
+
+Three findings, in order of how much they matter:
+
+1. **Model-switch markers were a third noise — in the dashboard as well, now fixed.** Subagent dispatches were being counted as developer model switches, two per isolated subagent turn. The semantics moved into `developerModelSwitches()` in `aggregate.ts`, which both `get_markers` and `src/service.ts` (switch list *and* chart markers) now call, so the two surfaces cannot drift. The real store's all-time dashboard count fell from 6 to 4. `get_markers` additionally returns `sidechainTurnsExcluded` and a note. Only switch detection excludes subagent turns; the cost series still counts them.
+2. **`inferenceCalls` equals `turns` on every real turn in the store (1285 = 1285).** `usage.iterations[]` is absent from this data, so the turn-is-not-a-call distinction is currently definitional with zero observed instances. Worth stating in `get_definitions` regardless — it costs nothing and stops an agent assuming the two are interchangeable if the field ever appears — but it is not presently load-bearing.
+3. **Response sizes are small enough that known unknown #3 is mostly answered.** Measured: summary 736 B, compare 1.1 kB, sessions-at-50 2.6 kB, definitions 6.3 kB. See `MCP.md` §11 Q3.
+
+Two deliberate scope decisions:
+
+- **`get_summary` takes no filters**, per `MCP.md` §8.2, which specifies range only. The consequence is that an agent cannot currently get a subagent-excluded *total* — only per-model rows via `compare_models`, or a filtered `list_sessions`. Noted rather than fixed, because inventing arguments the spec does not list is how a tool surface drifts.
+- **Filters aggregate over matching turns**, so a filtered session's figures describe part of a longer session. A note says so whenever any filter is active. The alternative — select sessions by match, then report their full stats — would report a turn count the filter contradicts.
+
 ### 2.4 Registering tools on the low-level `Server`
 
 There is no `registerTool`. Tools are wired with two handlers:
@@ -217,7 +233,7 @@ Judge the answers and write down what the agent got wrong or had to guess. That 
 | :-- | :--- | :--- |
 | ~~1~~ | ~~Does Claude Code pick up a newly registered server without a restart?~~ | **Settled 2026-09-28: no — config is read at session start only.** See 2.0 Answers. |
 | 2 | Will the agent call `get_definitions` before reasoning? | Phase 4; if not, the description needs rewriting |
-| 3 | How much agent context does a `list_sessions` response consume? | Phase 4 — may force `MCP.md` §11 Q3's cap sooner |
+| ~~3~~ | ~~How much agent context does a `list_sessions` response consume?~~ | **Measured 2026-10-04: 2.6 kB at the 50-session default (~650 tokens).** Not a concern. `get_definitions` is the largest response at 6.3 kB, and it is called once. See `MCP.md` §11 Q3. |
 | 4 | Is `node` reliably on `PATH` for VS Code-launched processes? | **Partly settled 2026-09-28: it resolved here, to nvm's node, via the extension binary's inherited `PATH` — but for a machine-specific reason. Not generalisable; keep the Phase 3 check.** See 2.0 Answers. |
 | 5 | Does adding an unapproved server to `.mcp.json` prompt for approval, and what does the prompt say? | Was task 2.0's question 2; unanswerable there because config is never re-read mid-session. Needs one fresh session. Affects `MCP.md` §7.3 only |
 

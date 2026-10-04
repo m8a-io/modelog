@@ -151,6 +151,35 @@ test("unpriced turns are excluded from cost series rather than counted as zero",
   assert.equal(series.find((s) => s.model === "claude-sonnet-5")!.values[0], 10_000_000);
 });
 
+// --- model switches -------------------------------------------------------
+
+import { developerModelSwitches, modelSwitches } from "../src/metrics/aggregate.ts";
+
+test("a subagent dispatch is not a model switch the developer made", () => {
+  // Each isolated subagent turn otherwise manufactures TWO switches — one in,
+  // one back out — neither of which the developer chose. Both the dashboard
+  // and the MCP markers tool read this function, so the semantics live here.
+  const ts = [
+    turn({ uuid: "a", ts: 1000, model: "claude-opus-5" }),
+    turn({ uuid: "b", ts: 2000, model: "claude-haiku-4-5", isSidechain: true }),
+    turn({ uuid: "c", ts: 3000, model: "claude-opus-5" }),
+  ];
+  assert.equal(modelSwitches(ts).length, 2, "the raw primitive sees both transitions");
+  assert.equal(developerModelSwitches(ts).length, 0, "the developer switched nothing");
+});
+
+test("a real switch still registers once subagent turns are removed", () => {
+  const ts = [
+    turn({ uuid: "a", ts: 1000, model: "claude-sonnet-5" }),
+    turn({ uuid: "b", ts: 2000, model: "claude-haiku-4-5", isSidechain: true }),
+    turn({ uuid: "c", ts: 3000, model: "claude-opus-5" }),
+  ];
+  const sw = developerModelSwitches(ts);
+  assert.equal(sw.length, 1);
+  assert.equal(sw[0]!.from, "claude-sonnet-5");
+  assert.equal(sw[0]!.to, "claude-opus-5", "the subagent must not break the pairing");
+});
+
 test("dayKey uses local time, not UTC", () => {
   const local = new Date(2026, 0, 15, 23, 30);
   assert.equal(dayKey(local.getTime()), "2026-01-15");

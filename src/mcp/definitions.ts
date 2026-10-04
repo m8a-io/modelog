@@ -96,6 +96,13 @@ export interface Definitions {
       };
     };
   };
+  /** Metrics the query tools return whose definition is not in their name. */
+  derivedMetrics: {
+    cacheHitRate: string;
+    costPerTurn: string;
+    relativeToCheapest: string;
+    modelSwitch: string;
+  };
   billing: {
     mode: string;
     label: string;
@@ -217,6 +224,30 @@ export function buildDefinitions(input: DefinitionsInput): Definitions {
         ],
         observed: unavailableCostCounts(turns, table),
       },
+    },
+
+    derivedMetrics: {
+      cacheHitRate:
+        "Cache-read tokens divided by all input-side tokens — fresh input plus " +
+        "cache reads plus both cache-write classes. Output tokens are not in " +
+        "the denominator. It is a property of how much of the input was served " +
+        "from cache, not a measure of cost saved.",
+      costPerTurn:
+        "Total cost divided by the number of turns that could be priced. Turns " +
+        "with an unavailable cost are excluded from both the numerator and the " +
+        "denominator, because averaging them in as zero would understate the " +
+        "figure.",
+      relativeToCheapest:
+        "A model's cost per turn as a multiple of the cheapest model's cost per " +
+        "turn within the same vendor. It is computed only inside one vendor's " +
+        "rows; Modelog emits no cross-vendor cost ratio.",
+      modelSwitch:
+        "Two consecutive turns, ordered by time, that ran on different models. " +
+        "Turns made by subagents are excluded before switches are detected: a " +
+        "subagent runs on a model the developer did not choose and returns to " +
+        "the original model afterwards, so including those transitions would " +
+        "report switches that never happened. A switch is marked intraSession " +
+        "when both turns belong to one session.",
     },
 
     billing: {

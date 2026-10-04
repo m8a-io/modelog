@@ -13,6 +13,8 @@ export interface ModelRow {
   turnsPerSession: number;
   cacheHitRate: number;
   inferenceCalls: number;
+  /** Turns made by a subagent. A model may be used entirely by subagents. */
+  sidechainTurns: number;
 }
 
 export interface Totals {
@@ -22,6 +24,10 @@ export interface Totals {
   unpricedTurns: number;
   firstTs: number | null;
   lastTs: number | null;
+  /** Sum of `iterations` — the underlying inference calls, not the turns. */
+  inferenceCalls: number;
+  /** Cache-read tokens over all input-side tokens. 0 when there are none. */
+  cacheHitRate: number;
 }
 
 export interface ModelSwitch {
@@ -51,6 +57,7 @@ export function modelRows(turns: readonly Turn[], table: RateTable): ModelRow[] 
     let cacheRead = 0;
     let inputSide = 0;
     let calls = 0;
+    let sidechain = 0;
     const sessions = new Set<string>();
 
     for (const t of list) {
@@ -62,6 +69,7 @@ export function modelRows(turns: readonly Turn[], table: RateTable): ModelRow[] 
       inputSide +=
         t.inputTokens + t.cacheReadTokens + t.cacheWrite5mTokens + t.cacheWrite1hTokens;
       calls += t.iterations;
+      if (t.isSidechain) sidechain++;
       sessions.add(t.sessionId);
     }
 
@@ -76,6 +84,7 @@ export function modelRows(turns: readonly Turn[], table: RateTable): ModelRow[] 
       turnsPerSession: sessions.size > 0 ? list.length / sessions.size : 0,
       cacheHitRate: inputSide > 0 ? cacheRead / inputSide : 0,
       inferenceCalls: calls,
+      sidechainTurns: sidechain,
     });
   }
 
@@ -89,6 +98,9 @@ export function totals(turns: readonly Turn[], table: RateTable): Totals {
   let unpriced = 0;
   let first: number | null = null;
   let last: number | null = null;
+  let calls = 0;
+  let cacheRead = 0;
+  let inputSide = 0;
   const sessions = new Set<string>();
 
   for (const t of turns) {
@@ -98,6 +110,9 @@ export function totals(turns: readonly Turn[], table: RateTable): Totals {
     sessions.add(t.sessionId);
     if (first === null || t.ts < first) first = t.ts;
     if (last === null || t.ts > last) last = t.ts;
+    calls += t.iterations;
+    cacheRead += t.cacheReadTokens;
+    inputSide += t.inputTokens + t.cacheReadTokens + t.cacheWrite5mTokens + t.cacheWrite1hTokens;
   }
 
   return {
@@ -107,7 +122,104 @@ export function totals(turns: readonly Turn[], table: RateTable): Totals {
     unpricedTurns: unpriced,
     firstTs: first,
     lastTs: last,
+    inferenceCalls: calls,
+    cacheHitRate: inputSide > 0 ? cacheRead / inputSide : 0,
   };
+}
+
+/** One row of per-session history. Also what Phase 0.1's session table needs. */
+export interface SessionRow {
+  sessionId: string;
+  firstTs: number;
+  lastTs: number;
+  /** Last turn minus first turn. A session with one turn has a duration of 0. */
+  durationMs: number;
+  turns: number;
+  inferenceCalls: number;
+  sidechainTurns: number;
+  /** Distinct, sorted. More than one means the model changed mid-session. */
+  models: string[];
+  /**
+   * Distinct, sorted, nulls dropped. Arrays rather than a single value
+   * because a session can span a branch change, and picking one of them
+   * would be a quiet misreport.
+   */
+  branches: string[];
+  cwds: string[];
+  entrypoints: string[];
+  totalCostMicro: number;
+  unpricedTurns: number;
+  cacheHitRate: number;
+}
+
+/**
+ * Group turns into sessions, most recently active first.
+ *
+ * Every figure covers exactly the turns passed in. When the caller has
+ * filtered — by model, say — these are the stats of the matching turns, not
+ * of the whole session, and the caller is responsible for saying so.
+ */
+export function sessionRows(turns: readonly Turn[], table: RateTable): SessionRow[] {
+  const bySession = new Map<string, Turn[]>();
+  for (const t of turns) {
+    let list = bySession.get(t.sessionId);
+    if (!list) bySession.set(t.sessionId, (list = []));
+    list.push(t);
+  }
+
+  const rows: SessionRow[] = [];
+  for (const [sessionId, list] of bySession) {
+    let cost = 0;
+    let unpriced = 0;
+    let calls = 0;
+    let sidechain = 0;
+    let cacheRead = 0;
+    let inputSide = 0;
+    let first = Infinity;
+    let last = -Infinity;
+    const models = new Set<string>();
+    const branches = new Set<string>();
+    const cwds = new Set<string>();
+    const entrypoints = new Set<string>();
+
+    for (const t of list) {
+      const c = turnCostMicro(t, table);
+      if (c === null) unpriced++;
+      else cost += c;
+
+      calls += t.iterations;
+      if (t.isSidechain) sidechain++;
+      cacheRead += t.cacheReadTokens;
+      inputSide += t.inputTokens + t.cacheReadTokens + t.cacheWrite5mTokens + t.cacheWrite1hTokens;
+      if (t.ts < first) first = t.ts;
+      if (t.ts > last) last = t.ts;
+
+      models.add(t.model);
+      if (t.gitBranch !== null) branches.add(t.gitBranch);
+      if (t.cwd !== null) cwds.add(t.cwd);
+      if (t.entrypoint !== null) entrypoints.add(t.entrypoint);
+    }
+
+    rows.push({
+      sessionId,
+      firstTs: first,
+      lastTs: last,
+      durationMs: last - first,
+      turns: list.length,
+      inferenceCalls: calls,
+      sidechainTurns: sidechain,
+      models: [...models].sort(),
+      branches: [...branches].sort(),
+      cwds: [...cwds].sort(),
+      entrypoints: [...entrypoints].sort(),
+      totalCostMicro: cost,
+      unpricedTurns: unpriced,
+      cacheHitRate: inputSide > 0 ? cacheRead / inputSide : 0,
+    });
+  }
+
+  rows.sort((a, b) => b.lastTs - a.lastTs);
+  return rows;
 }
 
 /**
@@ -115,6 +227,24 @@ export function totals(turns: readonly Turn[], table: RateTable): Totals {
  * Ordered globally by timestamp, so a switch is detected whether the user
  * changed model mid-session or between sessions.
  */
+/**
+ * Model switches the **developer** made.
+ *
+ * Subagent turns are dropped before detection. A subagent runs on a model the
+ * developer did not choose and control returns to the original model
+ * afterwards, so each isolated subagent turn otherwise manufactures TWO
+ * switches that never happened. Measured on a real store: 29 sidechain turns
+ * out of 1,603 (1.8%) produced 2 of 6 reported switches.
+ *
+ * This is the function every surface should use. `modelSwitches` below is the
+ * raw primitive and will happily report subagent transitions; it exists so
+ * the filtering stays visible at one call site rather than being baked in
+ * where a caller cannot see it.
+ */
+export function developerModelSwitches(turns: readonly Turn[]): ModelSwitch[] {
+  return modelSwitches(turns.filter((t) => !t.isSidechain));
+}
+
 export function modelSwitches(turns: readonly Turn[]): ModelSwitch[] {
   const ordered = [...turns].sort((a, b) => a.ts - b.ts);
   const out: ModelSwitch[] = [];
