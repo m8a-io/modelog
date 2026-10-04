@@ -167,7 +167,9 @@ Costs appear only within a single vendor's data. If the store ever holds multipl
 
 ### 8.4 `modelog_list_sessions`
 
-`{ days? | from?, to?, model?, branch?, limit? }` → sessions with id, start, end, duration, models used, turn count, cost, repo/branch. Default `limit` 50, hard cap 500.
+`{ days? | from?, to?, model?, branch?, limit? }` → sessions with id, first and last turn in range, in-range span, models used, in-range turn count, cost, repo/branch. Default `limit` 50, hard cap 500.
+
+**Per-session figures are range-clipped, and named so (issue #4).** `firstTurnInRange`, `lastTurnInRange`, `activeMsInRange` and `turnsInRange` cover only turns inside the requested range, so a session that straddles the boundary reads as a fragment by name rather than by an agent reading a note. A note also fires whenever any returned session has turns outside the range, with no other filter needed. `compare_models` carries the same note for `turnsPerSession`. Returning the session's full extent alongside (`sessionStart`, `sessionEnd`, `sessionTurns`) is **undecided** — it roughly doubles the per-session field count against the 2.6 kB measured in §11 Q3.
 
 ### 8.5 `modelog_get_markers`
 

@@ -184,14 +184,44 @@ test("sessions come back most recently active first", () => {
 
 test("a session reports its span, models and branches as typed fields", () => {
   const s1 = unwrap(listSessions(ctx(), {})).data.sessions.find((x: any) => x.sessionId === "s1");
-  assert.equal(s1.start, new Date(BASE_TS).toISOString());
-  assert.equal(s1.durationMs, 120_000);
-  assert.equal(s1.turns, 5);
+  assert.equal(s1.firstTurnInRange, new Date(BASE_TS).toISOString());
+  assert.equal(s1.activeMsInRange, 120_000);
+  assert.equal(s1.turnsInRange, 5);
   assert.equal(s1.sidechainTurns, 2);
   // Arrays rather than a single value: a session can span a branch change, and
   // picking one would be a quiet misreport.
   assert.deepEqual(s1.branches, ["main"]);
   assert.deepEqual(s1.models, ["claude-haiku-4-5-20251001", "claude-sonnet-5"]);
+});
+
+test("a range that cuts a session is disclosed by field name and by note", () => {
+  // s1 has turns at +0..+120s; this range starts mid-session.
+  const env = unwrap(
+    listSessions(ctx(), {
+      from: new Date(BASE_TS + 45_000).toISOString(),
+      to: new Date(BASE_TS + DAY_MS / 2).toISOString(),
+    }),
+  );
+  const s1 = env.data.sessions.find((x: any) => x.sessionId === "s1");
+  assert.equal(s1.turnsInRange, 3);
+  assert.equal(s1.activeMsInRange, 60_000);
+  assert.equal(s1.turns, undefined, "no un-qualified turns field");
+  assert.equal(s1.start, undefined, "no un-qualified start field");
+  assert.match(env.notes.join(" "), /1 of 1 returned sessions have turns outside this range/);
+});
+
+test("a range containing every session produces no clipping note", () => {
+  const env = unwrap(listSessions(ctx(), {}));
+  assert.doesNotMatch(env.notes.join(" "), /outside this range/);
+});
+
+test("compare_models flags turnsPerSession when a session straddles the range", () => {
+  const cut = {
+    from: new Date(BASE_TS + 45_000).toISOString(),
+    to: new Date(BASE_TS + DAY_MS / 2).toISOString(),
+  };
+  assert.match(unwrap(compareModels(ctx(), cut)).notes.join(" "), /extend beyond this range/);
+  assert.doesNotMatch(unwrap(compareModels(ctx(), {})).notes.join(" "), /extend beyond this range/);
 });
 
 test("truncation is reported, never silent", () => {

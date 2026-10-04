@@ -125,6 +125,24 @@ function activeFilters(args: FilterArgsInput): string[] {
   return out;
 }
 
+/**
+ * How many of `sessionIds` have turns outside the range. Those sessions' per-session
+ * figures describe a fragment, which the default 30-day range makes the common case.
+ */
+function rangeClippedSessions(
+  all: readonly Turn[],
+  sessionIds: ReadonlySet<string>,
+  range: { from: number; to: number },
+): number {
+  const clipped = new Set<string>();
+  for (const t of all) {
+    if (sessionIds.has(t.sessionId) && (t.ts < range.from || t.ts > range.to)) {
+      clipped.add(t.sessionId);
+    }
+  }
+  return clipped.size;
+}
+
 function unpricedCauses(turns: readonly Turn[], table: RateTable) {
   let unknownModel = 0;
   let unknownModifier = 0;
@@ -358,6 +376,13 @@ export function compareModels(
       `Filtered by ${filters.join(", ")}. Every figure covers only the matching turns.`,
     );
   }
+  const clipped = rangeClippedSessions(ctx.turns, new Set(turns.map((t) => t.sessionId)), r);
+  if (clipped > 0) {
+    notes.push(
+      `${clipped} sessions extend beyond this range. turnsPerSession divides in-range turns ` +
+        "by sessions touching the range, so it understates the length of those sessions.",
+    );
+  }
 
   return { ok: true, envelope: buildEnvelope(ctx, r, { vendors }, notes) };
 }
@@ -366,10 +391,12 @@ export function compareModels(
 
 export interface SessionSummary {
   sessionId: string;
-  start: string;
-  end: string;
-  durationMs: number;
-  turns: number;
+  /** First and last turn inside the requested range — not the session's own bounds. */
+  firstTurnInRange: string;
+  lastTurnInRange: string;
+  /** Last in-range turn minus first; wall-clock span, not time spent working. */
+  activeMsInRange: number;
+  turnsInRange: number;
   inferenceCalls: number;
   sidechainTurns: number;
   models: string[];
@@ -413,10 +440,10 @@ export function listSessions(
   const data: SessionListData = {
     sessions: page.map((s) => ({
       sessionId: s.sessionId,
-      start: new Date(s.firstTs).toISOString(),
-      end: new Date(s.lastTs).toISOString(),
-      durationMs: s.durationMs,
-      turns: s.turns,
+      firstTurnInRange: new Date(s.firstTs).toISOString(),
+      lastTurnInRange: new Date(s.lastTs).toISOString(),
+      activeMsInRange: s.durationMs,
+      turnsInRange: s.turns,
       inferenceCalls: s.inferenceCalls,
       sidechainTurns: s.sidechainTurns,
       models: s.models,
@@ -453,6 +480,14 @@ export function listSessions(
     notes.push(
       `Filtered by ${filters.join(", ")}. Each session's figures cover only its matching ` +
         "turns, so they may describe part of a longer session.",
+    );
+  }
+  const clipped = rangeClippedSessions(ctx.turns, new Set(page.map((s) => s.sessionId)), r);
+  if (clipped > 0) {
+    notes.push(
+      `${clipped} of ${data.returned} returned sessions have turns outside this range. ` +
+        "Their InRange figures (turns, first and last turn, activeMs, cost, cache hit rate) " +
+        "cover only the in-range part and understate the whole session.",
     );
   }
 
@@ -588,10 +623,12 @@ export const TOOLS = [
   {
     name: "modelog_list_sessions",
     description:
-      "Sessions in a date range, most recently active first: id, start, end, duration, " +
-      "models used, turn and subagent counts, cost, git branches and working " +
-      "directories. Reports how many sessions matched, so a truncated page is visible " +
-      "as truncated. " +
+      "Sessions in a date range, most recently active first: id, first and last turn " +
+      "in range, in-range span, models used, in-range turn and subagent counts, cost, " +
+      "git branches and working directories. Every per-session figure covers only the " +
+      "turns inside the range; a session that began earlier or ran later is clipped, " +
+      "and a note says when that happened. Reports how many sessions matched, so a " +
+      "truncated page is visible as truncated. " +
       RANGE_NOTE,
     inputSchema: {
       type: "object",
