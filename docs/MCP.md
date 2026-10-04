@@ -142,6 +142,17 @@ Includes: what a turn is (and that `<synthetic>` records are excluded, and that 
 
 **This tool exists to prevent confidently-wrong agent answers** and should be described so that agents call it first.
 
+**Implemented 2026-10-04** (`src/mcp/definitions.ts`). Four things were added beyond the list above, each because omitting it would let an agent reason from a false premise:
+
+- **Subagent (`isSidechain`) turns** — defined, and stated to be *included* in every per-model figure. The per-model counts of sidechain vs. main-conversation turns are **measured from the store on each call, never asserted in prose**: "all Haiku traffic is subagent work" is a property of one developer's data, and hardcoding it would be false elsewhere and would rot here.
+- **Both causes of a `null` cost**, counted separately — unknown model and unknown modifier (§8.7). "Unpriced turns" alone no longer identifies which applies.
+- **The rate table's historical limitation, stated outright**: every turn is priced at one snapshot's rates, including turns that ran earlier, so a cost difference between two periods may be a rate change rather than a usage change. PRD §11 Q18 / [issue #3](https://github.com/m8a-io/modelog/issues/3).
+- **Where the billing mode came from.** The server runs as a separate process and cannot read the `modelog.billingMode` setting, so a detected mode must not be presented as the user's configured one. A `billingFromEnv` flag covers the case where Phase 3 passes it explicitly.
+
+The range for this tool is the **store's own extent**, and is `null` on an empty store — a store with no turns has no span, and `now..now` would assert a range that does not exist. Hence `range` is nullable in §8.7's envelope.
+
+Prose in the response is **declarative, never imperative** (§4.2): it states what the numbers mean rather than what to do about them. A test asserts no branch name, path or session id reaches the output at all.
+
 ### 8.2 `modelog_get_summary`
 
 `{ days? | from?, to? }` → totals over the range: turns, sessions, total cost in micro-dollars *and* formatted, unpriced turn count, cache hit rate, date bounds.
@@ -172,10 +183,12 @@ Every tool returns a common envelope:
 
 ```
 { status: "ok" | "no-data" | "schema-mismatch",
-  range: { from, to },
+  range: { from: string | null, to: string | null },
   data: <tool-specific>,
   notes: string[] }
 ```
+
+`range` is nullable because a tool need not take one: `get_definitions` (§8.1) reports the store's own extent, which does not exist for an empty store. `data` is forced to `null` whenever `status` is not `"ok"`, in the shared helper rather than per handler, so a tool cannot report emptiness as a zero reading by forgetting to.
 
 `notes` carries caveats the agent should surface — subscription-mode estimation, unpriced turns present, a stale rate table, and subagent turns being included in the figures (PRD §11 Q23).
 
@@ -214,6 +227,6 @@ Every tool returns a common envelope:
 | # | Question | Leaning |
 | :-- | :--- | :--- |
 | 1 | Expose definitions as an MCP *resource* in addition to a tool? | Tool is universally supported; add the resource only if clients handle it well |
-| 2 | Should the server read the rate table from `data/pricing.json` in the extension dir, or a copy in `globalStorageUri`? | Copy alongside the DB — keeps the server independent of the versioned extension path (§7.1) |
+| ~~2~~ | ~~Should the server read the rate table from `data/pricing.json` in the extension dir, or a copy in `globalStorageUri`?~~ | **Settled 2026-10-04: neither — it is compiled into the bundle.** See `src/mcp/rates.ts`. The leaning (a copy beside the DB) predated the knowledge that §7.1 already rewrites `mcp-server.mjs` into `globalStorageUri` on a content-hash change, so a price change reaches the user by the same route either way. A second copy on disk adds a failure mode the envelope cannot express (DB present, pricing absent) and could disagree with the copy the dashboard reads — the drift risk §5 cites as the reason the server imports the metrics modules rather than restating them. Verified: esbuild inlines the JSON, and the derived rates match `test/cost.test.ts` exactly. |
 | 3 | Per-call result-size cap? | Yes — large `list_sessions` responses waste an agent's context; cap and paginate |
 | 4 | Surface `entrypoint` (CLI vs IDE) as a filter dimension? | Yes, once Part 1 exposes it — it is nearly free and enables a genuinely commensurable comparison (PRD §4.5, tier 2) |

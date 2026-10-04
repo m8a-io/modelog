@@ -30,9 +30,16 @@ export function toMoneyOrNull(micro: number | null): Money | null {
   return micro === null ? null : toMoney(micro);
 }
 
+/**
+ * `range` is nullable because a tool need not take one. `get_definitions`
+ * describes the whole store, so its range is the store's own extent — and an
+ * empty store has no extent. Reporting `now..now` there would assert a range
+ * that does not exist, which is the same class of error as reporting a gap as
+ * a zero.
+ */
 export interface Envelope<T> {
   status: StoreStatus;
-  range: { from: string; to: string };
+  range: { from: string | null; to: string | null };
   data: T | null;
   notes: string[];
 }
@@ -44,7 +51,7 @@ export interface Envelope<T> {
  */
 export function buildEnvelope<T>(
   opened: Pick<StoreOpenResult, "status" | "note">,
-  range: { from: number; to: number },
+  range: { from: number | null; to: number | null },
   data: T,
   notes: string[] = [],
 ): Envelope<T> {
@@ -56,8 +63,15 @@ export function buildEnvelope<T>(
   };
 }
 
-function toIsoRange(range: { from: number; to: number }): { from: string; to: string } {
-  return { from: new Date(range.from).toISOString(), to: new Date(range.to).toISOString() };
+function toIsoRange(range: { from: number | null; to: number | null }): {
+  from: string | null;
+  to: string | null;
+} {
+  return { from: toIso(range.from), to: toIso(range.to) };
+}
+
+function toIso(ts: number | null): string | null {
+  return ts === null ? null : new Date(ts).toISOString();
 }
 
 export interface RangeArgs {

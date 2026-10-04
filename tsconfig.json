@@ -14,6 +14,10 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // The MCP server compiles data/pricing.json into its bundle, because it
+    // runs as its own process with no access to the extension's install
+    // directory. See src/mcp/rates.ts.
+    "resolveJsonModule": true,
     "types": [
       "node",
       "vscode"

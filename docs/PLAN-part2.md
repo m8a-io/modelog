@@ -25,7 +25,9 @@ bash scripts/mcp-handshake.sh                 # expect: initialize reply + {"too
 | Phase 0.2 — `entrypoint` segmentation in the dashboard | **Not done.** Deferred: all local data is `claude-vscode`, so there is nothing to segment until the CLI is used. It gets its first real surface as a tool *filter* in this phase instead. |
 | Phase 0.1 — session history table | **Not done.** Pure Part 1 assembly, blocks nothing here. |
 | Phase 1 — MCP skeleton, stdio, read-only store | **Done** (`962d2ce`) |
-| Phase 2 — tools | **This session** |
+| Phase 2.1 — the envelope | **Done** (`dfb6b5d`) |
+| Phase 2.2 — `get_definitions` | **Done** — see 2.2 below |
+| Phase 2 — remaining tools (2.3) and wiring (2.4) | Next |
 | Phase 3 — registration | Unchanged, still after Phase 2 |
 
 **What exists to build on:**
@@ -147,6 +149,18 @@ Must cover, at minimum:
 - **That the store is a durable superset of the logs.** Finding 5.
 
 **Its description text matters as much as its output.** Budget real thought for the wording — it has to make an agent call this before reasoning. Test the *content*, not just the shape: assert the response mentions sidechain handling and the null-cost causes, so the explanation cannot silently regress.
+
+#### 2.2 — Done 2026-10-04
+
+`src/mcp/definitions.ts` + `src/mcp/rates.ts`, 32 tests in `test/definitions.test.ts` over a shared fixture store (`test/fixture.ts`, reused by 2.3). Suite: 98 tests, 0 failures.
+
+Three things were settled on the way through, each recorded where it belongs rather than here:
+
+1. **The server gets its rate table compiled in** — `MCP.md` §11 Q2, settled. The open question's leaning (a copy beside the DB) was rejected; reasoning in `src/mcp/rates.ts` and the Q2 row.
+2. **`range` is nullable** — a no-argument tool reports the store's extent, and an empty store has none. `MCP.md` §8.7 updated.
+3. **Pricing accuracy is now a tracked issue, not an open question** — PRD §11 Q18 → [issue #3](https://github.com/m8a-io/modelog/issues/3). Effective-dated rates resolved per `turn.ts` is the agreed direction; a network rate feed was considered and rejected. Current pinned behaviour stays, and `get_definitions` **discloses it outright** rather than letting an agent assume rates-as-of-turn. That disclosure is asserted by a test, so it cannot be dropped before the fix lands.
+
+**Not done here, by design:** the tool is not yet callable — `tools/list` still returns `[]`. Wiring is 2.4. `DEFINITIONS_DESCRIPTION` is exported and ready for it.
 
 ### 2.3 The query tools
 
