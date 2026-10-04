@@ -9,9 +9,14 @@
 ## Before you start (2 minutes)
 
 ```bash
-nvm use 24 && npm install && npm run check    # expect: 48 tests, 0 failures
-bash scripts/mcp-handshake.sh                 # expect: initialize reply + {"tools": []}
+nvm use 24 && npm install && npm run check    # expect: 148 tests, 0 failures
+bash scripts/mcp-handshake.sh                 # expect: 5 tools, 3 ok envelopes, 1 deliberate error
 ```
+
+The handshake script now calls tools as well as listing them, including one
+deliberately invalid call (`id=6`) that **must** come back as an error rather
+than an empty envelope. If that one returns a `status`, argument validation
+has regressed.
 
 `npm run check` does **not** build; `pretest` does, so `npm test` is always testing a fresh bundle.
 
@@ -28,7 +33,8 @@ bash scripts/mcp-handshake.sh                 # expect: initialize reply + {"too
 | Phase 2.1 — the envelope | **Done** (`dfb6b5d`) |
 | Phase 2.2 — `get_definitions` | **Done** — see 2.2 below |
 | Phase 2.3 — the query tools | **Done** — see 2.3 below |
-| Phase 2.4 — wiring onto the `Server` | Next, and small: handlers and schemas already exist |
+| Phase 2.4 — wiring onto the `Server` | **Done** — see 2.4 below |
+| Phase 3 — registration | **Next.** Read `docs/INSTALL-ux.md` first — it is two targets, not one |
 | Phase 3 — registration | Unchanged, still after Phase 2 |
 
 **What exists to build on:**
@@ -199,6 +205,18 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => { ... });
 ```
 
 Tool input schemas are plain JSON Schema in the `tools/list` response — no zod. Return content as a single `text` block containing `JSON.stringify(envelope)`; that is what an agent parses.
+
+#### 2.4 — Done 2026-10-04
+
+`src/mcp/server.ts` wires both handlers; schemas come straight from `TOOLS` so they are never restated. 148 tests, 0 failures, including six new protocol tests over the built bundle and one that drives the whole stack — bundle, stdio, read-only store, handlers — against a fixture store and asserts the figures match the in-process ones.
+
+Three decisions worth knowing:
+
+- **The context is rebuilt per call, never cached.** The extension writes to the store concurrently, so a store can appear, gain rows or change schema between two calls in one session. A server that cached its first read would keep answering `no-data` after the extension's first ingest. Verified live: the startup diagnostic reported 1,671 turns and a call moments later saw 1,684.
+- **Three failure classes stay distinct.** A bad argument or unknown tool is `isError` — "you asked wrongly" must not be readable as "there is no data". A missing store is a `no-data` envelope. A throw mid-call (locked or unreadable store, MCP.md §9) is `isError` with the reason, and the server keeps serving; a test asserts it survives a bad call and answers the next one.
+- **`instructions` now points at `get_definitions`.** It is delivered into the model's context at connect time, which makes it the only place to influence tool choice before any call happens — the cheapest available lever on known unknown #2.
+
+**Phase 2 is complete.** Phase 3 is registration, and `docs/INSTALL-ux.md` should be read first.
 
 ---
 

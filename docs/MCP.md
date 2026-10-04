@@ -222,7 +222,7 @@ Every tool returns a common envelope:
 - **Tool handlers** — pure functions over a fixture store; exact assertions, run under `node --test` like the Part 1 suite.
 - **Read-only enforcement** — assert a write attempt through the server's connection throws.
 - **Concurrency** — extension writes while the server reads; assert no corruption and that new rows become visible.
-- **Protocol smoke test** — spawn the built `dist/mcp-server.mjs`, perform `initialize` and `tools/list`, assert the expected tool set and schemas.
+- **Protocol smoke test** — spawn the built `dist/mcp-server.mjs`, perform `initialize` and `tools/list`, assert the expected tool set and schemas. **Implemented 2026-10-04** in `test/mcp.test.ts`, with a hand-rolled stdio client rather than the SDK's, so the test exercises the wire format a real client sends. It also calls every advertised tool, asserts a bad argument comes back as `isError` rather than an empty envelope, and asserts the server keeps serving after a failed call.
 - **Envelope invariants** — every tool returns a valid envelope in all three `status` states.
 - **No-content guarantee** — assert no tool response contains any field sourced from `message.content`.
 
