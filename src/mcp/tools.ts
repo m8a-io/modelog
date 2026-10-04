@@ -1,4 +1,5 @@
 import type { Turn } from "../ingest/types.ts";
+import { isCaptured, type CapturedField } from "../ingest/capture.ts";
 import { resolveRates, turnCostMicro, type RateTable } from "../metrics/cost.ts";
 import {
   filterByRange,
@@ -103,14 +104,60 @@ export function vendorOf(model: string): string {
 
 // --- shared helpers ----------------------------------------------------------
 
-function applyFilters(turns: readonly Turn[], args: FilterArgsInput): Turn[] {
-  return turns.filter((t) => {
-    if (args.model !== undefined && t.model !== args.model) return false;
-    if (args.branch !== undefined && t.gitBranch !== args.branch) return false;
-    if (args.entrypoint !== undefined && t.entrypoint !== args.entrypoint) return false;
-    if (args.isSidechain !== undefined && t.isSidechain !== args.isSidechain) return false;
-    return true;
-  });
+interface FilterResult {
+  matched: Turn[];
+  /** Turns with no definite miss whose filtered field was never captured. */
+  unevaluable: Turn[];
+  unevaluableFields: CapturedField[];
+}
+
+/**
+ * A turn whose filtered field was not captured is neither a match nor a
+ * non-match, so it is set aside and counted rather than silently dropped.
+ * A definite miss on another filter still makes it a plain non-match.
+ */
+function applyFilters(turns: readonly Turn[], args: FilterArgsInput): FilterResult {
+  const matched: Turn[] = [];
+  const unevaluable: Turn[] = [];
+  const fields = new Set<CapturedField>();
+
+  for (const t of turns) {
+    if (args.model !== undefined && t.model !== args.model) continue;
+    if (args.branch !== undefined && t.gitBranch !== args.branch) continue;
+
+    let miss = false;
+    const unknown: CapturedField[] = [];
+    if (args.entrypoint !== undefined) {
+      if (!isCaptured(t, "entrypoint")) unknown.push("entrypoint");
+      else if (t.entrypoint !== args.entrypoint) miss = true;
+    }
+    if (args.isSidechain !== undefined) {
+      if (!isCaptured(t, "isSidechain")) unknown.push("isSidechain");
+      else if (t.isSidechain !== args.isSidechain) miss = true;
+    }
+
+    if (miss) continue;
+    if (unknown.length > 0) {
+      unevaluable.push(t);
+      for (const f of unknown) fields.add(f);
+      continue;
+    }
+    matched.push(t);
+  }
+
+  return { matched, unevaluable, unevaluableFields: [...fields].sort() };
+}
+
+function unevaluableNote(f: FilterResult): string | null {
+  if (f.unevaluable.length === 0) return null;
+  const sessions = new Set(f.unevaluable.map((t) => t.sessionId)).size;
+  // Field names only, never filter values (§4.2).
+  return (
+    `${f.unevaluable.length} turns in ${sessions} sessions could not be evaluated against ` +
+    `the filter on ${f.unevaluableFields.join(", ")}, because that value was not captured ` +
+    "when they were ingested. They are excluded from these figures and are not known to " +
+    "be non-matches."
+  );
 }
 
 function activeFilters(args: FilterArgsInput): string[] {
@@ -183,6 +230,15 @@ function costNotes(
       `${sidechain} of ${tot.turns} turns in this range were made by subagents and are ` +
         "included in these figures. Subagent work is often routed to a different model " +
         "than the developer selected.",
+    );
+  }
+
+  const unknownSidechain = turns.filter((t) => !isCaptured(t, "isSidechain")).length;
+  if (unknownSidechain > 0) {
+    notes.push(
+      `${unknownSidechain} of ${tot.turns} turns in this range were ingested before ` +
+        "isSidechain was captured. They are counted as main-conversation turns, so " +
+        "subagent counts omit any of them that were subagent turns.",
     );
   }
 
@@ -319,7 +375,8 @@ export function compareModels(
   const r = parseRange(args, ctx.now);
   if (!r.ok) return { ok: false, error: r.error };
 
-  const turns = applyFilters(filterByRange(ctx.turns, r.from, r.to), args);
+  const filtered = applyFilters(filterByRange(ctx.turns, r.from, r.to), args);
+  const turns = filtered.matched;
   const rows = modelRows(turns, ctx.table);
 
   // Group first, THEN compute ratios. A cheapest-model baseline is only ever
@@ -376,6 +433,8 @@ export function compareModels(
       `Filtered by ${filters.join(", ")}. Every figure covers only the matching turns.`,
     );
   }
+  const unevaluable = unevaluableNote(filtered);
+  if (unevaluable) notes.push(unevaluable);
   const clipped = rangeClippedSessions(ctx.turns, new Set(turns.map((t) => t.sessionId)), r);
   if (clipped > 0) {
     notes.push(
@@ -401,6 +460,10 @@ export interface SessionSummary {
   sidechainTurns: number;
   models: string[];
   entrypoints: string[];
+  /** Fields not captured for at least one turn here; their other values may mean unknown. */
+  uncapturedFields: string[];
+  /** Turns with at least one uncaptured field. */
+  uncapturedTurns: number;
   branches: string[];
   cwds: string[];
   totalCost: Money;
@@ -433,7 +496,8 @@ export function listSessions(
   }
   const limit = Math.min(requested, MAX_SESSION_LIMIT);
 
-  const turns = applyFilters(filterByRange(ctx.turns, r.from, r.to), args);
+  const filtered = applyFilters(filterByRange(ctx.turns, r.from, r.to), args);
+  const turns = filtered.matched;
   const rows = sessionRows(turns, ctx.table);
   const page = rows.slice(0, limit);
 
@@ -448,6 +512,8 @@ export function listSessions(
       sidechainTurns: s.sidechainTurns,
       models: s.models,
       entrypoints: s.entrypoints,
+      uncapturedFields: s.uncapturedFields,
+      uncapturedTurns: s.uncapturedTurns,
       branches: s.branches,
       cwds: s.cwds,
       totalCost: toMoney(s.totalCostMicro),
@@ -482,6 +548,8 @@ export function listSessions(
         "turns, so they may describe part of a longer session.",
     );
   }
+  const unevaluable = unevaluableNote(filtered);
+  if (unevaluable) notes.push(unevaluable);
   const clipped = rangeClippedSessions(ctx.turns, new Set(page.map((s) => s.sessionId)), r);
   if (clipped > 0) {
     notes.push(
@@ -541,6 +609,14 @@ export function getMarkers(ctx: ToolContext, args: RangeArgsInput): ToolResult<M
         "that never happened.",
     );
   }
+  const unknownSidechain = inRange.filter((t) => !isCaptured(t, "isSidechain")).length;
+  if (unknownSidechain > 0) {
+    notes.push(
+      `${unknownSidechain} turns in this range were ingested before isSidechain was captured ` +
+        "and were treated as main-conversation turns. Any of them that were subagent turns " +
+        "may have produced switches that never happened.",
+    );
+  }
   const stale = staleRateTableNote(ctx.table.effectiveDate, ctx.now);
   if (stale) notes.push(stale);
 
@@ -575,12 +651,15 @@ const FILTER_PROPERTIES = {
     type: "string",
     description:
       "Restrict to one surface, e.g. claude-vscode for the IDE extension or " +
-      "claude-cli for the terminal.",
+      "claude-cli for the terminal. Turns ingested before the field was captured are " +
+      "excluded and counted in a note.",
   },
   isSidechain: {
     type: "boolean",
     description:
-      "true for subagent turns only, false to exclude them. Omitted includes both.",
+      "true for subagent turns only, false to exclude them. Omitted includes both. " +
+      "Turns ingested before the field was captured match neither value; they are " +
+      "excluded and counted in a note.",
   },
 } as const;
 
@@ -627,7 +706,9 @@ export const TOOLS = [
       "in range, in-range span, models used, in-range turn and subagent counts, cost, " +
       "git branches and working directories. Every per-session figure covers only the " +
       "turns inside the range; a session that began earlier or ran later is clipped, " +
-      "and a note says when that happened. Reports how many sessions matched, so a " +
+      "and a note says when that happened. uncapturedFields lists values Modelog had " +
+      "not yet started recording for that session's turns: for those, an empty or " +
+      "false value means unknown. Reports how many sessions matched, so a " +
       "truncated page is visible as truncated. " +
       RANGE_NOTE,
     inputSchema: {

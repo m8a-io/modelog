@@ -1,4 +1,5 @@
 import type { Turn } from "../ingest/types.ts";
+import { uncapturedFields, type CapturedField } from "../ingest/capture.ts";
 import { turnCostMicro, type RateTable } from "./cost.ts";
 
 /** One row of the model comparison table — the hero surface (DESIGN.md §10.2). */
@@ -147,6 +148,14 @@ export interface SessionRow {
   branches: string[];
   cwds: string[];
   entrypoints: string[];
+  /**
+   * Distinct, sorted. Fields Modelog had not yet started recording for at
+   * least one of these turns, so an empty `entrypoints` or a `false`
+   * subagent flag on this session may mean unknown rather than none.
+   */
+  uncapturedFields: CapturedField[];
+  /** Turns with at least one uncaptured field. */
+  uncapturedTurns: number;
   totalCostMicro: number;
   unpricedTurns: number;
   cacheHitRate: number;
@@ -181,6 +190,8 @@ export function sessionRows(turns: readonly Turn[], table: RateTable): SessionRo
     const branches = new Set<string>();
     const cwds = new Set<string>();
     const entrypoints = new Set<string>();
+    const uncaptured = new Set<CapturedField>();
+    let uncapturedTurns = 0;
 
     for (const t of list) {
       const c = turnCostMicro(t, table);
@@ -198,6 +209,9 @@ export function sessionRows(turns: readonly Turn[], table: RateTable): SessionRo
       if (t.gitBranch !== null) branches.add(t.gitBranch);
       if (t.cwd !== null) cwds.add(t.cwd);
       if (t.entrypoint !== null) entrypoints.add(t.entrypoint);
+      const missing = uncapturedFields(t);
+      if (missing.length > 0) uncapturedTurns++;
+      for (const f of missing) uncaptured.add(f);
     }
 
     rows.push({
@@ -212,6 +226,8 @@ export function sessionRows(turns: readonly Turn[], table: RateTable): SessionRo
       branches: [...branches].sort(),
       cwds: [...cwds].sort(),
       entrypoints: [...entrypoints].sort(),
+      uncapturedFields: [...uncaptured].sort(),
+      uncapturedTurns,
       totalCostMicro: cost,
       unpricedTurns: unpriced,
       cacheHitRate: inputSide > 0 ? cacheRead / inputSide : 0,

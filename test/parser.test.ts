@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseChunk } from "../src/ingest/claudeCode.ts";
+import { CAPTURE_VERSION, uncapturedFields } from "../src/ingest/capture.ts";
 
 const assistant = (over: Record<string, unknown> = {}, usage: Record<string, unknown> = {}) =>
   JSON.stringify({
@@ -136,6 +137,12 @@ test("captures entrypoint — the CLI-vs-IDE segment", () => {
 test("a record with no entrypoint yields null, not a guessed surface", () => {
   const { turns } = parseChunk(assistant() + "\n", "f.jsonl");
   assert.equal(turns[0]!.entrypoint, null);
+});
+
+test("every parsed turn is stamped with the current capture version, even with no entrypoint", () => {
+  const { turns } = parseChunk(assistant() + "\n", "f.jsonl");
+  assert.equal(turns[0]!.captureVersion, CAPTURE_VERSION);
+  assert.deepEqual(uncapturedFields(turns[0]!), []);
 });
 
 test("flags subagent turns — a sidechain call is not a turn the user chose", () => {

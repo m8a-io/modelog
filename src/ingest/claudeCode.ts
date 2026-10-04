@@ -1,4 +1,5 @@
 import type { Turn, Diagnostic, ParseResult } from "./types.ts";
+import { CAPTURE_VERSION } from "./capture.ts";
 
 /**
  * Claude Code source adapter.
@@ -132,6 +133,7 @@ function toTurn(
     inferenceGeo: typeof usage.inference_geo === "string" ? usage.inference_geo : null,
     entrypoint: typeof rec.entrypoint === "string" ? rec.entrypoint : null,
     isSidechain: rec.isSidechain === true,
+    captureVersion: CAPTURE_VERSION,
     cwd: typeof rec.cwd === "string" ? rec.cwd : null,
     gitBranch: typeof rec.gitBranch === "string" ? rec.gitBranch : null,
     sourceFile: file,

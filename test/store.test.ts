@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { SqliteStore, loadSqlite, migrate } from "../src/store/sqliteStore.ts";
 import { SCHEMA_VERSION } from "../src/store/store.ts";
 import type { Turn } from "../src/ingest/types.ts";
+import { uncapturedFields } from "../src/ingest/capture.ts";
 
 const sqlite = await loadSqlite();
 
@@ -34,7 +35,7 @@ function turn(p: Partial<Turn> = {}): Turn {
     uuid: "u1", sessionId: "s1", ts: 1_000, model: "claude-sonnet-5",
     inputTokens: 1, cacheReadTokens: 2, cacheWrite5mTokens: 3,
     cacheWrite1hTokens: 4, outputTokens: 5, thinkingTokens: 6,
-    iterations: 1, entrypoint: "claude-vscode", isSidechain: false,
+    iterations: 1, entrypoint: "claude-vscode", isSidechain: false, captureVersion: 2,
     speed: "standard", inferenceGeo: "not_available",
     cwd: "/w", gitBranch: "main", sourceFile: "f.jsonl",
     ...p,
@@ -83,6 +84,23 @@ test("both new fields survive a write/read round trip", { skip: !sqlite }, () =>
   }
 });
 
+test("capture version survives a round trip, so an uncaptured row stays uncaptured", { skip: !sqlite }, () => {
+  const t = tmp();
+  try {
+    const store = new SqliteStore(sqlite, t.path);
+    store.upsertTurns([
+      turn({ uuid: "old", captureVersion: 1, isSidechain: false, entrypoint: null }),
+      turn({ uuid: "new" }),
+    ]);
+    const byId = new Map(store.allTurns().map((x) => [x.uuid, x]));
+    assert.equal(byId.get("old")!.captureVersion, 1);
+    assert.equal(byId.get("new")!.captureVersion, 2);
+    store.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("an existing pre-migration database gains the columns", { skip: !sqlite }, () => {
   const t = tmp();
   try {
@@ -102,7 +120,7 @@ test("an existing pre-migration database gains the columns", { skip: !sqlite }, 
 
     assert.deepEqual(
       [...store.migratedColumns].sort(),
-      ["entrypoint", "inference_geo", "is_sidechain", "speed"],
+      ["capture_version", "entrypoint", "inference_geo", "is_sidechain", "speed"],
     );
 
     // The pre-existing row is readable, with the new fields as gaps.
@@ -115,6 +133,9 @@ test("an existing pre-migration database gains the columns", { skip: !sqlite }, 
     // from a recorded value we do not recognise, which prices as null.
     assert.equal(rows[0]!.speed, null);
     assert.equal(rows[0]!.inferenceGeo, null);
+    // The false above is a default, not an observation; the row says so.
+    assert.equal(rows[0]!.captureVersion, 1);
+    assert.deepEqual(uncapturedFields(rows[0]!), ["entrypoint", "inferenceGeo", "isSidechain", "speed"]);
 
     // The cursor must be gone, or the scanner would skip the unchanged file
     // and the newly added columns would never be backfilled.

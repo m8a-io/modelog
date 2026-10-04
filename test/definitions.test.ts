@@ -225,6 +225,21 @@ test("the store is described as a durable superset of the logs", () => {
   assert.match(d.durability, /stay null/);
 });
 
+test("uncaptured fields are defined, with the filter rule and measured counts", () => {
+  const legacy = [...FIXTURE_TURNS, { ...FIXTURE_TURNS[0]!, uuid: "old", captureVersion: 1 }];
+  const d = defs(legacy).store.uncaptured;
+  assert.match(d.filterRule, /isSidechain: false/);
+  assert.match(d.meaning, /priced as unmodified/);
+  assert.equal(d.observed.turnsWithAnyUncapturedField, 1);
+  assert.equal(d.observed.byField.isSidechain, 1);
+  assert.equal(defs().store.uncaptured.observed.turnsWithAnyUncapturedField, 0);
+
+  const withLegacy = definitionsNotes(legacy, API_BILLING, FRESH_DATE, NOW).join(" ");
+  assert.match(withLegacy, /1 of 10 stored turns were ingested before some fields/);
+  const without = definitionsNotes(FIXTURE_TURNS, API_BILLING, FRESH_DATE, NOW).join(" ");
+  assert.doesNotMatch(without, /ingested before some fields/);
+});
+
 test("schema version and the data's true span are reported", () => {
   const d = defs().store;
   assert.equal(d.schemaVersion, SCHEMA_VERSION);

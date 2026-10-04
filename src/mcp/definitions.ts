@@ -1,4 +1,9 @@
 import type { Turn } from "../ingest/types.ts";
+import {
+  CAPTURED_FIELDS,
+  uncapturedFields,
+  type CapturedField,
+} from "../ingest/capture.ts";
 import { resolveRates, turnCostMicro, type PricingFile, type RateTable } from "../metrics/cost.ts";
 import { totals } from "../metrics/aggregate.ts";
 import { billingCopy, type BillingInfo } from "../ingest/billing.ts";
@@ -121,6 +126,11 @@ export interface Definitions {
     firstTurn: string | null;
     lastTurn: string | null;
     durability: string;
+    uncaptured: {
+      meaning: string;
+      filterRule: string;
+      observed: { turnsWithAnyUncapturedField: number; byField: Record<CapturedField, number> };
+    };
   };
 }
 
@@ -278,8 +288,22 @@ export function buildDefinitions(input: DefinitionsInput): Definitions {
         "store can cover a longer span than the logs currently on disk. Turns " +
         "whose source file no longer exists keep whatever fields were captured " +
         "when they were first read; fields added by a later version of Modelog " +
-        "stay null for them, because a backfill can only re-read a file that " +
-        "still exists.",
+        "stay null for them (isSidechain stays false), because a backfill can " +
+        "only re-read a file that still exists.",
+      uncaptured: {
+        meaning:
+          "A turn ingested before Modelog recorded a field has that field " +
+          "uncaptured. For such a turn an empty entrypoint or a false isSidechain " +
+          "means unknown, not none and not main-conversation, and an " +
+          "uncaptured speed or inference_geo is priced as unmodified, as for " +
+          "any turn whose record does not carry them. Sessions list their " +
+          "uncapturedFields and uncapturedTurns.",
+        filterRule:
+          "A turn whose filtered field is uncaptured is excluded from a filtered " +
+          "query and counted in a note, separately from turns that did not match. " +
+          "That includes isSidechain: false, so an unknown is never treated as false.",
+        observed: uncapturedCounts(turns),
+      },
     },
   };
 }
@@ -332,6 +356,14 @@ export function definitionsNotes(
     );
   }
 
+  const uncaptured = turns.filter((t) => uncapturedFields(t).length > 0).length;
+  if (uncaptured > 0) {
+    notes.push(
+      `${uncaptured} of ${turns.length} stored turns were ingested before some fields ` +
+        "were captured; see store.uncaptured for what that means for each field.",
+    );
+  }
+
   if (billing.mode === "subscription") {
     notes.push(
       "Billing mode is subscription, so every cost figure is a shadow price — " +
@@ -363,6 +395,23 @@ function billingSource(billing: BillingInfo, fromEnv: boolean): string {
     "so the more conservative of the two modes is assumed: costs are " +
     "described as estimates rather than as an amount billed."
   );
+}
+
+function uncapturedCounts(turns: readonly Turn[]): {
+  turnsWithAnyUncapturedField: number;
+  byField: Record<CapturedField, number>;
+} {
+  const byField = Object.fromEntries(CAPTURED_FIELDS.map((f) => [f, 0])) as Record<
+    CapturedField,
+    number
+  >;
+  let any = 0;
+  for (const t of turns) {
+    const missing = uncapturedFields(t);
+    if (missing.length > 0) any++;
+    for (const f of missing) byField[f]++;
+  }
+  return { turnsWithAnyUncapturedField: any, byField };
 }
 
 function unavailableCostCounts(

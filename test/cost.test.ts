@@ -12,7 +12,7 @@ function turn(p: Partial<Turn>): Turn {
     uuid: "u", sessionId: "s", ts: 0, model: "claude-sonnet-5",
     inputTokens: 0, cacheReadTokens: 0, cacheWrite5mTokens: 0,
     cacheWrite1hTokens: 0, outputTokens: 0, thinkingTokens: 0,
-    iterations: 1, entrypoint: "claude-vscode", isSidechain: false,
+    iterations: 1, entrypoint: "claude-vscode", isSidechain: false, captureVersion: 2,
     speed: null, inferenceGeo: null,
     cwd: null, gitBranch: null, sourceFile: "f",
     ...p,

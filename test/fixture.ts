@@ -37,6 +37,7 @@ export function turn(p: Partial<Turn> & { uuid: string }): Turn {
     iterations: 1,
     entrypoint: "claude-vscode",
     isSidechain: false,
+    captureVersion: 2,
     speed: null,
     inferenceGeo: null,
     cwd: "/home/dev/project",

@@ -5,7 +5,7 @@ import type { Turn, FileCursor } from "../ingest/types.ts";
  * off this: SQLite ALTERs missing columns in, the file store discards a cache
  * written by an older version. Either way the source logs rebuild the data.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * The storage contract. Deliberately narrow: nothing above this interface

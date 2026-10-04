@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS turns (
   iterations            INTEGER NOT NULL,
   entrypoint            TEXT,
   is_sidechain          INTEGER NOT NULL DEFAULT 0,
+  capture_version       INTEGER NOT NULL DEFAULT 1,
   speed                 TEXT,
   inference_geo         TEXT,
   cwd                   TEXT,
@@ -72,6 +73,12 @@ const ADDED_COLUMNS: ReadonlyArray<{ column: string; ddl: string }> = [
   },
   { column: "speed", ddl: "ALTER TABLE turns ADD COLUMN speed TEXT" },
   { column: "inference_geo", ddl: "ALTER TABLE turns ADD COLUMN inference_geo TEXT" },
+  // is_sidechain defaults to 0, so an uncaptured subagent turn reads as false.
+  // Existing rows default to 1; a rescan re-stamps those whose file survives.
+  {
+    column: "capture_version",
+    ddl: "ALTER TABLE turns ADD COLUMN capture_version INTEGER NOT NULL DEFAULT 1",
+  },
 ];
 
 /**
@@ -123,9 +130,9 @@ export class SqliteStore implements Store {
       INSERT OR REPLACE INTO turns
         (uuid, session_id, ts, model, input_tokens, cache_read_tokens,
          cache_write_5m_tokens, cache_write_1h_tokens, output_tokens,
-         thinking_tokens, iterations, entrypoint, is_sidechain,
+         thinking_tokens, iterations, entrypoint, is_sidechain, capture_version,
          speed, inference_geo, cwd, git_branch, source_file)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
     this.db.exec("BEGIN");
     try {
@@ -134,7 +141,7 @@ export class SqliteStore implements Store {
           t.uuid, t.sessionId, t.ts, t.model, t.inputTokens, t.cacheReadTokens,
           t.cacheWrite5mTokens, t.cacheWrite1hTokens, t.outputTokens,
           t.thinkingTokens, t.iterations, t.entrypoint, t.isSidechain ? 1 : 0,
-          t.speed, t.inferenceGeo, t.cwd, t.gitBranch, t.sourceFile,
+          t.captureVersion, t.speed, t.inferenceGeo, t.cwd, t.gitBranch, t.sourceFile,
         );
       }
       this.db.exec("COMMIT");
@@ -195,6 +202,7 @@ function rowToTurn(r: any): Turn {
     iterations: r.iterations,
     entrypoint: r.entrypoint ?? null,
     isSidechain: r.is_sidechain === 1,
+    captureVersion: r.capture_version,
     speed: r.speed ?? null,
     inferenceGeo: r.inference_geo ?? null,
     cwd: r.cwd,

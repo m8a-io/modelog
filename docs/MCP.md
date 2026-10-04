@@ -171,6 +171,8 @@ Costs appear only within a single vendor's data. If the store ever holds multipl
 
 **Per-session figures are range-clipped, and named so (issue #4).** `firstTurnInRange`, `lastTurnInRange`, `activeMsInRange` and `turnsInRange` cover only turns inside the requested range, so a session that straddles the boundary reads as a fragment by name rather than by an agent reading a note. A note also fires whenever any returned session has turns outside the range, with no other filter needed. `compare_models` carries the same note for `turnsPerSession`. Returning the session's full extent alongside (`sessionStart`, `sessionEnd`, `sessionTurns`) is **undecided** — it roughly doubles the per-session field count against the 2.6 kB measured in §11 Q3.
 
+**Uncaptured fields (issue #7).** Each session carries `uncapturedFields` (always present, `[]` when none) and `uncapturedTurns`: the fields Modelog had not yet started recording for at least one of its turns, and how many turns. For those turns an empty `entrypoints` or a `false` subagent flag means unknown. A filter on `entrypoint` or `isSidechain` excludes a turn whose field is uncaptured — including `isSidechain: false` — and a note counts those turns separately from turns that did not match. `compare_models` applies the same rule.
+
 ### 8.5 `modelog_get_markers`
 
 `{ days? | from?, to? }` → observed anchors, currently model switches: timestamp, from, to, and whether the switch was intra-session.

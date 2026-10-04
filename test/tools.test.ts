@@ -175,6 +175,81 @@ test("filtered figures are flagged as covering only matching turns", () => {
   assert.match(env.notes.join(" "), /part of a longer session/);
 });
 
+// --- uncaptured fields (issue #7) ------------------------------------------------
+
+/** Ingested before entrypoint/isSidechain were captured: stored as null / false. */
+const LEGACY: Turn[] = [
+  turn({ uuid: "l1", sessionId: "legacy", ts: BASE_TS + 3 * DAY_MS, captureVersion: 1, entrypoint: null, isSidechain: false }),
+  turn({ uuid: "l2", sessionId: "legacy", ts: BASE_TS + 3 * DAY_MS + 60_000, captureVersion: 1, entrypoint: null, isSidechain: false }),
+];
+const WITH_LEGACY = [...FIXTURE_TURNS, ...LEGACY];
+
+test("a session with uncaptured fields says so, rather than showing an empty array as fact", () => {
+  const s = unwrap(listSessions(ctx({ turns: WITH_LEGACY }), {})).data.sessions;
+  const legacy = s.find((x: any) => x.sessionId === "legacy");
+  assert.deepEqual(legacy.entrypoints, []);
+  assert.deepEqual(legacy.uncapturedFields, ["entrypoint", "inferenceGeo", "isSidechain", "speed"]);
+  assert.equal(legacy.uncapturedTurns, 2);
+
+  const fully = s.find((x: any) => x.sessionId === "s1");
+  assert.deepEqual(fully.uncapturedFields, [], "always present, empty when fully captured");
+  assert.equal(fully.uncapturedTurns, 0);
+});
+
+test("a filter on entrypoint excludes uncaptured turns and counts them apart from non-matches", () => {
+  const env = unwrap(compareModels(ctx({ turns: WITH_LEGACY }), { entrypoint: "claude-vscode" }));
+  const notes = env.notes.join(" ");
+  assert.match(notes, /2 turns in 1 sessions could not be evaluated against the filter on entrypoint/);
+  assert.match(notes, /not known to be non-matches/);
+  // s3 (claude-cli) is a plain miss and must not be counted as unevaluable.
+  assert.doesNotMatch(notes, /3 turns/);
+
+  const sessions = unwrap(listSessions(ctx({ turns: WITH_LEGACY }), { entrypoint: "claude-vscode" }));
+  assert.ok(!sessions.data.sessions.some((x: any) => x.sessionId === "legacy"));
+  assert.match(sessions.notes.join(" "), /could not be evaluated/);
+});
+
+test("isSidechain: false does not treat an uncaptured turn as main-conversation", () => {
+  for (const isSidechain of [true, false]) {
+    const env = unwrap(listSessions(ctx({ turns: WITH_LEGACY }), { isSidechain }));
+    assert.ok(!env.data.sessions.some((x: any) => x.sessionId === "legacy"));
+    assert.match(env.notes.join(" "), /2 turns in 1 sessions could not be evaluated against the filter on isSidechain/);
+  }
+});
+
+test("a definite miss on another filter is a non-match, not an unevaluable turn", () => {
+  const env = unwrap(listSessions(ctx({ turns: WITH_LEGACY }), { entrypoint: "claude-vscode", model: "claude-opus-5" }));
+  assert.doesNotMatch(env.notes.join(" "), /could not be evaluated/);
+});
+
+test("no unevaluable note without uncaptured turns, and filter values stay out of it", () => {
+  assert.doesNotMatch(
+    unwrap(listSessions(ctx(), { entrypoint: "claude-vscode" })).notes.join(" "),
+    /could not be evaluated/,
+  );
+  const notes = unwrap(listSessions(ctx({ turns: WITH_LEGACY }), { entrypoint: "claude-vscode" })).notes.join(" ");
+  assert.ok(!notes.includes("claude-vscode"), "the value must stay out of the note");
+});
+
+test("uncaptured isSidechain turns are disclosed in the subagent figures", () => {
+  const notes = unwrap(getSummary(ctx({ turns: WITH_LEGACY }), {})).notes.join(" ");
+  assert.match(notes, /2 of 11 turns in this range were ingested before isSidechain was captured/);
+  assert.doesNotMatch(unwrap(getSummary(ctx(), {})).notes.join(" "), /ingested before isSidechain/);
+});
+
+test("markers disclose uncaptured isSidechain turns, which could hide phantom switches", () => {
+  // Synthesised: the real store has no instance of this (all uncaptured rows are one model).
+  const turns = [
+    turn({ uuid: "m1", sessionId: "x", ts: BASE_TS, captureVersion: 1 }),
+    turn({ uuid: "m2", sessionId: "x", ts: BASE_TS + 1_000, captureVersion: 1, model: "claude-haiku-4-5" }),
+    turn({ uuid: "m3", sessionId: "x", ts: BASE_TS + 2_000, captureVersion: 1 }),
+  ];
+  const env = unwrap(getMarkers(ctx({ turns }), {}));
+  assert.equal(env.data.markers.length, 2, "the phantom in-and-out switch is reported");
+  assert.match(env.notes.join(" "), /3 turns in this range were ingested before isSidechain was captured/);
+  assert.doesNotMatch(unwrap(getMarkers(ctx(), {})).notes.join(" "), /ingested before isSidechain/);
+});
+
 // --- §8.4 list_sessions ---------------------------------------------------------
 
 test("sessions come back most recently active first", () => {

@@ -52,6 +52,9 @@ export interface Turn {
    */
   isSidechain: boolean;
 
+  /** Which fields this row was ingested with; see `capture.ts`. */
+  captureVersion: number;
+
   cwd: string | null;
   gitBranch: string | null;
   sourceFile: string;

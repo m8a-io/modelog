@@ -146,6 +146,7 @@ export function readTurns(db: any): Turn[] {
     inferenceGeo: r.inference_geo ?? null,
     entrypoint: r.entrypoint ?? null,
     isSidechain: r.is_sidechain === 1,
+    captureVersion: r.capture_version,
     cwd: r.cwd,
     gitBranch: r.git_branch,
     sourceFile: r.source_file,
