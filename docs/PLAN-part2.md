@@ -1,22 +1,53 @@
-# Next Session — Part 2, Phase 2: The Tool Surface
+# Next Session — Part 2, Phase 3: Registration
 
-**Goal:** every MCP tool in `MCP.md` §8 implemented, routed through one envelope, unit-tested over a fixture store.
+**Goal:** Modelog registers its MCP server with both clients that can consume it — VS Code's own MCP client via the provider API, and Claude Code via a config file — without either path claiming a success it cannot verify.
 
-**Spec:** `MCP.md`. This document is sequencing and session context, not requirements — where the two disagree, `MCP.md` wins.
+**Spec:** `MCP.md` for the server, **`docs/INSTALL-ux.md` §2 for this phase**. Read INSTALL-ux first: registration is two targets with two different mechanisms, and only one of them writes a file. This document is sequencing and session context, not requirements — where it and the spec disagree, the spec wins.
+
+**Phase 2 is complete and Phase 4 has run.** Everything below §2.0 is the record of how, kept because the findings constrain Phase 3. Skip to [Phase 3](#phase-3--registration) to start work.
 
 ---
 
-## Before you start (2 minutes)
+## Before you start
+
+### Do these two things *before* opening the session
+
+**1. Open VS Code once, so the store migrates.** `SCHEMA_VERSION` is now 3 (`capture_version`, issue #7) and the real store on this machine was last written at 2. A read-only connection cannot migrate it, so until the extension host opens it, **every tool call returns `schema-mismatch` with `data: null`** — correct behaviour, alarming if unexpected. Opening VS Code with this repo as the workspace root is enough; `migrate()` runs on store open and then drops all cursors, forcing one full re-read.
+
+While it re-ingests, there is a falsifiable prediction to check. Issue #7's fix says the store should report **146** turns with an uncaptured `entrypoint` — not 346, and not all of them:
 
 ```bash
-nvm use 24 && npm install && npm run check    # expect: 148 tests, 0 failures
+node --input-type=module -e "
+import { openReadOnly, readTurns } from './src/mcp/readOnlyStore.ts';
+import { uncapturedFields } from './src/ingest/capture.ts';
+const r = await openReadOnly(process.env.HOME + '/.vscode-server/data/User/globalStorage/modelog.modelog/modelog.db');
+const t = readTurns(r.db);
+console.log(r.status, t.length, t.filter((x) => uncapturedFields(x).includes('entrypoint')).length);
+"   # expect: ok 1785+ 146
+```
+
+If that prints 346, the re-ingest has run but the value-aware predicate regressed. If it prints a number near the total, the re-ingest has not finished.
+
+**2. Plant an unapproved server in `.mcp.json`, to settle known unknown #5 for free.** It needs one fresh session with an unapproved entry *present at launch*, and the next session is exactly that. Add a second entry beside `modelog` before you start:
+
+```json
+"probe": { "command": "node", "args": ["<repo>/scripts/probe-server.mjs"] }
+```
+
+Then note whether launching prompts for approval and what the prompt says, and revert it. This is task 3.0 and it is the only thing in this plan that cannot be done later.
+
+### Then
+
+```bash
+nvm use 24 && npm install && npm run check    # expect: 164 tests, 0 failures
 bash scripts/mcp-handshake.sh                 # expect: 5 tools, 3 ok envelopes, 1 deliberate error
 ```
 
-The handshake script now calls tools as well as listing them, including one
+The handshake script calls tools as well as listing them, including one
 deliberately invalid call (`id=6`) that **must** come back as an error rather
 than an empty envelope. If that one returns a `status`, argument validation
-has regressed.
+has regressed. It defaults to the real store, so it reports `schema-mismatch`
+rather than `ok` until step 1 is done; pass a path to use a different store.
 
 `npm run check` does **not** build; `pretest` does, so `npm test` is always testing a fresh bundle.
 
@@ -34,8 +65,11 @@ has regressed.
 | Phase 2.2 — `get_definitions` | **Done** — see 2.2 below |
 | Phase 2.3 — the query tools | **Done** — see 2.3 below |
 | Phase 2.4 — wiring onto the `Server` | **Done** — see 2.4 below |
+| Phase 4 — the actual test | **Done 2026-10-04** — see Phase 4 below. Known unknown #2 settled; four defects found |
+| Issue [#4](https://github.com/m8a-io/modelog/issues/4) — range clipping reported as session fact | **Fixed** (`4a85d70`) |
+| Issue [#7](https://github.com/m8a-io/modelog/issues/7) — uncaptured fields read as empty | **Fixed** (`508b0de`, `53a3fb9`) |
+| Issues [#5](https://github.com/m8a-io/modelog/issues/5), [#6](https://github.com/m8a-io/modelog/issues/6) — token counts, dispersion | **Open.** Both are Phase 4 output, neither blocks Phase 3 |
 | Phase 3 — registration | **Next.** Read `docs/INSTALL-ux.md` first — it is two targets, not one |
-| Phase 3 — registration | Unchanged, still after Phase 2 |
 
 **What exists to build on:**
 
@@ -220,20 +254,55 @@ Three decisions worth knowing:
 
 ---
 
-## Phase 3 — Registration (**revised 2026-09-28** — read `INSTALL-ux.md` first)
+## Phase 3 — Registration
 
-The description below was written as one job. It is **two targets with two different mechanisms**, and only one of them writes a config file. Full detail in `docs/INSTALL-ux.md` §2; the short version:
+**Revised 2026-09-28 — read `INSTALL-ux.md` first.** The description below was written as one job. It is **two targets with two different mechanisms**, and only one of them writes a config file. Full detail in `docs/INSTALL-ux.md` §2; the short version:
 
 - **Target A — VS Code's own MCP client.** `vscode.lm.registerMcpServerDefinitionProvider` plus a `contributes.mcpServerDefinitionProviders` manifest entry. **No config file writing, and no `node` on `PATH` required** — the server can run on the editor's Node via `process.execPath`. Requires raising `engines.vscode` from `^1.90.0`; the exact floor is not yet established.
 - **Target B — Claude Code.** The config writing described below, still needed, because the provider API does not feed Claude Code.
 
 **Target B's copy must not claim success.** Task 2.0 settled that Claude Code reads MCP config at session start only, so after writing, the command tells the user the server appears in their *next* session — and does not poll for it.
 
-Target B, as originally planned: write `mcp-server.mjs` into `globalStorageUri` on activation when the content hash differs; `Modelog: Enable MCP Server` checks `node` on `PATH`, shows the exact JSON and target file, confirms, backs up, writes; `Modelog: Disable` removes only the `modelog` entry; Copy Configuration for every other client.
-
 **One local fact for this phase:** there is no `claude` CLI on this machine, and `~/.claude.json` holds per-project `mcpServers` under `projects["<abs path>"]`. Testing has used a gitignored project-scoped `.mcp.json` instead, deliberately — a half-written writer that corrupts `~/.claude.json` remains the worst outcome available here.
 
 **Not in this phase:** the first-run/walkthrough UX, cross-platform validation, and Coder/m8a support. Those are PRD §7.15, §7.16 and §7.17 respectively, scheduled after Part 2.
+
+### Sequenced tasks
+
+#### 3.0 Answer known unknown #5 — minutes, and only possible at launch
+
+Covered in "Before you start". Record whether an unapproved `.mcp.json` entry prompts for approval at session start and what the prompt says, then revert the probe entry. If Claude Code already prompts, **match its wording and shape rather than inventing a different confirmation** — `MCP.md` §7.3 requires showing the exact JSON and target file, and an existing precedent is worth more than a nicer dialog. If it does not prompt, Modelog's own confirmation becomes the only gate and matters more.
+
+#### 3.1 Establish the `engines.vscode` floor — do before writing Target A
+
+Known unknown #6. `registerMcpServerDefinitionProvider` and `contributes.mcpServerDefinitionProviders` have an introduction version; the manifest's `^1.90.0` predates them. Find the real floor from the API docs or the `@types/vscode` changelog, then raise `engines.vscode` to it in the same commit as Target A — not before, or the extension declares a requirement it does not yet use.
+
+Worth knowing what raising it costs: it is the minimum VS Code a user must run to install Modelog at all, including for Part 1's dashboard. If the floor turns out to be recent, say so in the PRD rather than absorbing it silently.
+
+#### 3.2 Target A — the provider API
+
+`vscode.lm.registerMcpServerDefinitionProvider` plus the manifest contribution. Two properties make this the easier target and both should be asserted somewhere:
+
+- **No file is written.** Nothing to back up, nothing to corrupt, nothing to undo.
+- **No `node` on `PATH` is required** — `process.execPath` is the editor's own Node, which is why known unknown #4 stops mattering for this target. It does *not* stop mattering for Target B.
+
+This is also the first code in `src/` that imports `vscode` outside `extension.ts`. Keep the layering rule intact: the provider belongs with the VS Code wiring, not in `service.ts`.
+
+#### 3.3 Ship the server bundle into `globalStorageUri`
+
+Write `mcp-server.mjs` there on activation when the content hash differs. Both targets point at that path rather than at `dist/`, so a developer running from source and a user running from the marketplace get the same registration shape. Hash-compare rather than always writing, so an unchanged bundle is not rewritten on every activation.
+
+#### 3.4 Target B — the Claude Code config writer
+
+`Modelog: Enable MCP Server`: check `node` on `PATH` (still load-bearing — see 2.0 answer 4), show the exact JSON and the exact target file, confirm, back up, write. `Modelog: Disable` removes only the `modelog` entry and leaves every other server untouched. A Copy Configuration command covers every other client.
+
+**The copy must not claim success.** Task 2.0 settled that Claude Code reads MCP config at session start only, so after writing, the command says the server appears in the user's *next* session. Do not write a "connected" affirmation and do not poll for it to appear — it will not.
+
+Order within this task matters: write the backup-and-restore path and its test before the writer. The worst available outcome here is a half-written `~/.claude.json`.
+
+#### 3.5 Make the two targets' disagreement visible
+
+A user can end up with Target A registered and Target B not, or the reverse, and the two have different failure modes. Whatever UI reports state should report it **per target**, not as one boolean. This is small, and skipping it produces the one support question that cannot be answered from a screenshot.
 
 ## Phase 4 — The actual test
 
@@ -243,6 +312,23 @@ Judge the answers and write down what the agent got wrong or had to guess. That 
 
 **A specific thing to watch:** whether the agent notices Haiku's turns are subagent calls, and whether it calls `get_definitions` before reasoning. If it blends sidechain turns into a per-model comparison without remark, the definitions wording failed — that is the test, not a side effect.
 
+#### Phase 4 — Done 2026-10-04
+
+Method: the session that ran the test had already read this plan, so it was disqualified for the one question that matters. Two **cold** agents were used instead — no plan context, each given one of the two questions verbatim and nothing else. What they called was read afterwards from their own transcripts rather than self-reported, so that tool choice was never signposted as the thing being measured.
+
+**Known unknown #2 is settled: yes.** Both agents called `modelog_get_definitions` **second** — immediately after discovering the tools, before any query tool — unprompted. One went further and re-ran `compare_models` twice with `isSidechain: false` to test whether subagent turns were distorting its comparison, then reported the delta as immaterial. That is the behaviour 2.2 was written to produce.
+
+**Which lever fired is not isolated.** Neither transcript records a system prompt, so there is no evidence of whether the `instructions` string reached a subagent. What is certain is that both agents ran a tool search first, which returned the descriptions, and the call followed. So the earlier reading in 2.4 — that `instructions` is "the only place to influence tool choice" — is too strong in one direction and too weak in another:
+
+- **Too weak:** `instructions` *is* delivered verbatim into a top-level session's context, under a `# MCP Server Instructions` heading, byte-identical to `src/mcp/server.ts`. Confirmed directly.
+- **Too strong:** in a session where tools are *deferred* behind a search (names loaded, schemas not), `DEFINITIONS_DESCRIPTION` is not in context until the model searches for it. It is still reachable, and it still worked. But a description cannot be assumed present at the moment a tool is chosen.
+
+**Four defects, all filed.** [#4](https://github.com/m8a-io/modelog/issues/4) and [#7](https://github.com/m8a-io/modelog/issues/7) are fixed; [#5](https://github.com/m8a-io/modelog/issues/5) and [#6](https://github.com/m8a-io/modelog/issues/6) are open.
+
+#4 is the one worth remembering, because it shows what the product is for. Asked what the week's work had been, the agent reported a session as *"16 turns, 6 minutes, $11.23 … 5.5x your weekly average"* and then explained it: *"a large context loaded at session start and then abandoned almost immediately — you paid the cache writes and never amortised them."* The session actually ran **401 turns over 7h58m for $121.07**. Nothing was abandoned. The range had clipped it and no note said so. The agent had called `get_definitions`, read every note and caveated three other claims correctly — diligence does not help when the data is wrong and silent about it.
+
+**The thing to watch was not exercised.** Haiku's turns all fall outside a 30-day window, so no agent had the chance to blend them into a per-model comparison. The sidechain wording is therefore still untested against a real agent, and the check is worth repeating once there is recent subagent traffic on a model the developer did not pick.
+
 ---
 
 ## Known unknowns
@@ -250,17 +336,23 @@ Judge the answers and write down what the agent got wrong or had to guess. That 
 | # | Question | Find out by |
 | :-- | :--- | :--- |
 | ~~1~~ | ~~Does Claude Code pick up a newly registered server without a restart?~~ | **Settled 2026-09-28: no — config is read at session start only.** See 2.0 Answers. |
-| 2 | Will the agent call `get_definitions` before reasoning? | Phase 4; if not, the description needs rewriting |
+| ~~2~~ | ~~Will the agent call `get_definitions` before reasoning?~~ | **Settled 2026-10-04: yes.** Two cold agents, both called it second, before any query tool. Which lever caused it is not isolated — see the Phase 4 record. |
 | ~~3~~ | ~~How much agent context does a `list_sessions` response consume?~~ | **Measured 2026-10-04: 2.6 kB at the 50-session default (~650 tokens).** Not a concern. `get_definitions` is the largest response at 6.3 kB, and it is called once. See `MCP.md` §11 Q3. |
 | 4 | Is `node` reliably on `PATH` for VS Code-launched processes? | **Partly settled 2026-09-28: it resolved here, to nvm's node, via the extension binary's inherited `PATH` — but for a machine-specific reason. Not generalisable; keep the Phase 3 check.** See 2.0 Answers. |
-| 5 | Does adding an unapproved server to `.mcp.json` prompt for approval, and what does the prompt say? | Was task 2.0's question 2; unanswerable there because config is never re-read mid-session. Needs one fresh session. Affects `MCP.md` §7.3 only |
+| 5 | Does adding an unapproved server to `.mcp.json` prompt for approval, and what does the prompt say? | **Task 3.0 — do it first.** Needs one fresh session with an unapproved entry present at launch; see "Before you start". Affects `MCP.md` §7.3 only |
+| 6 | What is the real `engines.vscode` floor for `registerMcpServerDefinitionProvider`? | Task 3.1. The manifest currently says `^1.90.0`, which is certainly too low. Blocks Target A |
+| 7 | Are tool *descriptions* reliably in context when a client picks a tool? | Raised by Phase 4: in a deferred-tool session they are not until searched for. Decides how much weight `instructions` has to carry versus `DEFINITIONS_DESCRIPTION` |
 
 ## Explicitly not this session
 
-Ollama, session labeling, work-log generation, the Copilot adapter, the `{amount, unit}` refactor beyond the envelope, anything in Part 3. Also not Phase 0.1's session history table unless Phase 2 finishes early.
+Ollama, session labeling, work-log generation, the Copilot adapter, the `{amount, unit}` refactor beyond the envelope, anything in Part 3. Also not Phase 0.1's session history table.
+
+Issues **#5** (token counts) and **#6** (dispersion) are Phase 4 output and both change the tool surface. They do not belong in a registration phase — finish Phase 3, then take them together, since #6 reads better once #5's counts exist.
 
 Also explicitly **not** this session, now that they have phases of their own: install and first-run UX (PRD §7.15), cross-platform environment validation (§7.16), and m8a/Coder integration (§7.17).
 
 ## Realistic scope
 
-2.0 is minutes; 2.1 plus 2.2 is then a solid session on its own; 2.2's wording is the part that deserves unhurried attention. If time runs short, stop after 2.2 and test with the MCP Inspector (`npx @modelcontextprotocol/inspector node dist/mcp-server.mjs`) rather than starting 2.3 badly.
+3.0 and 3.1 are minutes each and both gate what follows, so do them first even though neither produces code. 3.2 plus 3.3 is a comfortable session. 3.4 is the one that deserves unhurried attention — it writes to a file in the user's home directory that other tools depend on, and it is the only task here that can damage something.
+
+If time runs short, **stop after 3.3 with Target A working and Target B not started.** A single working registration path is a shippable state; a half-finished config writer is not. Do not start 3.4 without time to write its backup path and test.
