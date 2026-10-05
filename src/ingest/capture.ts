@@ -27,10 +27,34 @@ const CAPTURED_SINCE: Readonly<Record<CapturedField, number>> = {
 
 export const CAPTURED_FIELDS = Object.keys(CAPTURED_SINCE).sort() as CapturedField[];
 
-export function isCaptured(turn: Pick<Turn, "captureVersion">, field: CapturedField): boolean {
-  return turn.captureVersion >= CAPTURED_SINCE[field];
+/** Everything needed to decide capture: the version, plus the values it governs. */
+export type CaptureProbe = Pick<Turn, "captureVersion" | CapturedField>;
+
+/**
+ * Whether `field` was captured for this row.
+ *
+ * The version is the primary answer, but it is not the only evidence. A row
+ * whose source file has since been deleted can never be re-read, so it keeps
+ * whatever version it had even when an earlier migration already backfilled
+ * it — the version undercounts, in the safe direction, but it undercounts.
+ * A stored value settles the question on its own: Modelog cannot invent an
+ * `entrypoint`, so a row carrying one read it from the log whatever its
+ * version says.
+ *
+ * Version alone would report 346 rows of this store's 1,785 as missing
+ * `entrypoint` when 146 are, and exclude the other 200 — which hold a real
+ * `claude-vscode` — from every filter on it.
+ *
+ * `isSidechain` resolves one way only. `true` could not have been invented,
+ * but `false` is also the column default, so a pre-version row storing
+ * `false` stays unknown. That is irreducible without the source file, and
+ * unknown is the honest answer rather than a conservative one.
+ */
+export function isCaptured(turn: CaptureProbe, field: CapturedField): boolean {
+  if (turn.captureVersion >= CAPTURED_SINCE[field]) return true;
+  return field === "isSidechain" ? turn.isSidechain : turn[field] !== null;
 }
 
-export function uncapturedFields(turn: Pick<Turn, "captureVersion">): CapturedField[] {
+export function uncapturedFields(turn: CaptureProbe): CapturedField[] {
   return CAPTURED_FIELDS.filter((f) => !isCaptured(turn, f));
 }

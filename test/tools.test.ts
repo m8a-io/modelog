@@ -17,6 +17,7 @@ import { SCHEMA_VERSION } from "../src/store/store.ts";
 import type { BillingInfo } from "../src/ingest/billing.ts";
 import type { Turn } from "../src/ingest/types.ts";
 import { FIXTURE_TURNS, makeStore, sqlite, BASE_TS, turn } from "./fixture.ts";
+import { isCaptured, uncapturedFields } from "../src/ingest/capture.ts";
 
 const API_BILLING: BillingInfo = { mode: "api", detected: true, rawType: "prepaid" };
 const SUB_BILLING: BillingInfo = { mode: "subscription", detected: false, rawType: null };
@@ -207,6 +208,47 @@ test("a filter on entrypoint excludes uncaptured turns and counts them apart fro
   const sessions = unwrap(listSessions(ctx({ turns: WITH_LEGACY }), { entrypoint: "claude-vscode" }));
   assert.ok(!sessions.data.sessions.some((x: any) => x.sessionId === "legacy"));
   assert.match(sessions.notes.join(" "), /could not be evaluated/);
+});
+
+/**
+ * A row whose source file was deleted keeps its old capture version even when
+ * an earlier migration already backfilled it, so the version undercounts. A
+ * stored value is independent evidence and settles the question.
+ */
+const BACKFILLED = turn({
+  uuid: "b1",
+  sessionId: "backfilled",
+  ts: BASE_TS + 4 * DAY_MS,
+  captureVersion: 1,
+  entrypoint: "claude-vscode",
+  speed: "standard",
+  isSidechain: false,
+});
+
+test("a stored value proves capture even when the row's version predates the field", () => {
+  assert.ok(isCaptured(BACKFILLED, "entrypoint"), "Modelog cannot invent an entrypoint");
+  assert.ok(isCaptured(BACKFILLED, "speed"));
+  assert.ok(!isCaptured(BACKFILLED, "inferenceGeo"), "null at version 1 is still unknown");
+  assert.deepEqual(uncapturedFields(BACKFILLED), ["inferenceGeo", "isSidechain"]);
+});
+
+test("isSidechain resolves one way only — true is proof, false is also the column default", () => {
+  assert.ok(isCaptured({ ...BACKFILLED, isSidechain: true }, "isSidechain"));
+  assert.ok(!isCaptured({ ...BACKFILLED, isSidechain: false }, "isSidechain"));
+});
+
+test("a backfilled turn is filtered on its real value, not excluded as unevaluable", () => {
+  const turns = [...FIXTURE_TURNS, BACKFILLED];
+  const env = unwrap(listSessions(ctx({ turns }), { entrypoint: "claude-vscode" }));
+  assert.ok(
+    env.data.sessions.some((x: any) => x.sessionId === "backfilled"),
+    "it holds a real claude-vscode and must match",
+  );
+  assert.doesNotMatch(env.notes.join(" "), /could not be evaluated against the filter on entrypoint/);
+
+  // Its isSidechain is still unknown, so a filter on that one must still flag it.
+  const side = unwrap(listSessions(ctx({ turns }), { isSidechain: false }));
+  assert.match(side.notes.join(" "), /could not be evaluated against the filter on isSidechain/);
 });
 
 test("isSidechain: false does not treat an uncaptured turn as main-conversation", () => {
