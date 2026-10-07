@@ -90,6 +90,27 @@
           ],
           "description": "How your AI assistant usage is billed. Determines how Modelog describes its cost figures."
         },
+        "modelog.copilot.enabled": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "off"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Read Copilot's debug logs if they already exist.",
+            "Never read Copilot data, even if logs are present."
+          ],
+          "description": "Whether to include GitHub Copilot sessions. Modelog only ever reads logs Copilot has already written \u2014 it never turns Copilot's logging on by itself. Use \"Modelog: Enable Copilot Analysis\" for that."
+        },
+        "modelog.copilotLogPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Override the workspaceStorage directories scanned for Copilot logs. Empty means derive it from this extension's own storage path, which is correct unless you run more than one VS Code installation."
+        },
         "modelog.statusBar.enabled": {
           "type": "boolean",
           "default": true,

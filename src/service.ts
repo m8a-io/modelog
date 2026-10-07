@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createStore, type Store } from "./store/index.ts";
 import { scan } from "./ingest/scanner.ts";
+import { claudeCodeAdapter } from "./ingest/claudeCode.ts";
+import { copilotAdapter } from "./ingest/copilot.ts";
 import { buildRateTable, formatMicroUsd, type RateTable, type PricingFile } from "./metrics/cost.ts";
 import {
   modelRows,
@@ -38,6 +40,12 @@ export interface ServiceOptions {
   logPaths: readonly string[];
   /** "auto" detects from Claude Code's config; otherwise an explicit override. */
   billingMode: string;
+  /**
+   * Where Copilot's per-workspace debug logs live. Empty disables Copilot
+   * ingest entirely — which is the state for any user who has never turned
+   * Copilot's own logging on, and is not an error.
+   */
+  copilotLogPaths?: readonly string[];
 }
 
 /**
@@ -81,13 +89,28 @@ export class ModelogService {
   }
 
   rescan(): void {
-    const res = scan(this.store, this.opts.logPaths);
     this.warnings = this.warnings.filter((w) => !w.startsWith("Ingest:"));
+
+    // Each source gets its own roots: Claude Code's logs and Copilot's live in
+    // unrelated places, and offering every adapter every root would mean
+    // walking a large tree looking for files that cannot be there.
+    const res = scan(this.store, this.opts.logPaths, [claudeCodeAdapter]);
+    const copilotPaths = this.opts.copilotLogPaths ?? [];
+    const copilotRes =
+      copilotPaths.length > 0
+        ? scan(this.store, copilotPaths, [copilotAdapter])
+        : null;
+
+    // A missing Claude Code directory is worth saying; a missing Copilot one
+    // is the normal state for anyone not using Copilot and is not reported.
     if (res.missingPaths.length) {
       this.warnings.push(`Ingest: no log directory at ${res.missingPaths.join(", ")}`);
     }
+
     const byKind = new Map<string, number>();
-    for (const d of res.diagnostics) byKind.set(d.kind, (byKind.get(d.kind) ?? 0) + 1);
+    for (const d of [...res.diagnostics, ...(copilotRes?.diagnostics ?? [])]) {
+      byKind.set(d.kind, (byKind.get(d.kind) ?? 0) + 1);
+    }
     for (const [kind, n] of byKind) {
       this.warnings.push(`Ingest: ${n} record(s) with "${kind}".`);
     }

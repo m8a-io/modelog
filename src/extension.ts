@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import * as vscode from "vscode";
 import { DashboardPanel } from "./ui/panel.ts";
 import { ModelogService } from "./service.ts";
@@ -31,6 +31,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     extensionDir: context.extensionUri.fsPath,
     logPaths: cfg().get<string[]>("logPaths", ["~/.claude/projects"]),
     billingMode: cfg().get<string>("billingMode", "subscription"),
+    copilotLogPaths: copilotLogPaths(context, cfg),
   });
 
   await service.init();
@@ -98,6 +99,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   refreshAll();
   registerMcpProvider(context, cfg);
+}
+
+/**
+ * Where Copilot's per-workspace debug logs live.
+ *
+ * **Derived, not guessed.** `globalStorageUri` is
+ * `<...>/User/globalStorage/modelog.modelog`, and Copilot's logs are under
+ * `<...>/User/workspaceStorage/`, so the root is two levels up from our own
+ * storage directory. Because it comes from a path VS Code hands us, it is
+ * correct on macOS, Windows, VSCodium, Remote-SSH and dev containers alike —
+ * where a `homedir()` plus per-platform table would have to be maintained and
+ * would be wrong on the ones nobody tested.
+ *
+ * The known gap: a user running two VS Code installs (desktop plus a remote)
+ * has two `workspaceStorage` roots and this sees only the one its own
+ * extension host lives in. `modelog.copilotLogPaths` covers that case
+ * explicitly rather than by sniffing.
+ */
+function copilotLogPaths(
+  context: vscode.ExtensionContext,
+  cfg: () => vscode.WorkspaceConfiguration,
+): string[] {
+  if (cfg().get<string>("copilot.enabled", "auto") === "off") return [];
+
+  const override = cfg().get<string[]>("copilotLogPaths", []);
+  if (override.length > 0) return override;
+
+  return [resolve(context.globalStorageUri.fsPath, "..", "..", "workspaceStorage")];
 }
 
 /**
