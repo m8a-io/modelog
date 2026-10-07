@@ -628,3 +628,55 @@ test("an explicit range narrows to just the sessions inside it", { skip: !sqlite
     fx.cleanup();
   }
 });
+
+// --- two sources in one store (PRD §4.5) ------------------------------------
+
+function mixedCtx() {
+  const base = ctx();
+  return {
+    ...base,
+    turns: [
+      ...base.turns,
+      // Same model id as a Claude Code row, reached through the other
+      // assistant. These must never end up in one group.
+      turn({
+        uuid: "cop1",
+        source: "copilot",
+        model: "claude-sonnet-5",
+        costNanoAiu: 5_524_930_000,
+        tokenBreakdown: "solved",
+        ts: BASE_TS,
+      }),
+    ],
+  };
+}
+
+test("the same model through two assistants is never grouped together", () => {
+  const env = unwrap(compareModels(mixedCtx(), { days: 3650 }));
+  const anthropic = env.data.vendors.filter((v: { vendor: string }) => v.vendor === "anthropic");
+  assert.equal(anthropic.length, 2, "one group per source, not one per vendor");
+  assert.deepEqual(
+    anthropic.map((v: { source: string }) => v.source).sort(),
+    ["claude-code", "copilot"],
+  );
+});
+
+test("each group declares the unit its ratios and totals are in", () => {
+  const env = unwrap(compareModels(mixedCtx(), { days: 3650 }));
+  for (const v of env.data.vendors) {
+    const expected = v.source === "copilot" ? "aiu_nano" : "usd_micro";
+    assert.equal(v.unit, expected);
+    for (const m of v.models) {
+      if (m.totalCost) assert.equal(m.totalCost.unit, expected);
+    }
+  }
+});
+
+test("a summary over both sources reports each separately and blends only counts", () => {
+  const env = unwrap(getSummary(mixedCtx(), { days: 3650 }));
+  assert.equal(env.data.costBySource.length, 2);
+  const units = env.data.costBySource.map((c: { totalCost: { unit: string } }) => c.totalCost.unit);
+  assert.deepEqual(units.sort(), ["aiu_nano", "usd_micro"]);
+  // Counts are unit-free, so they legitimately span both.
+  assert.equal(env.data.turns, 10);
+});

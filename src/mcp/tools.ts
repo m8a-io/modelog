@@ -1,6 +1,6 @@
 import type { Turn } from "../ingest/types.ts";
 import { isCaptured, type CapturedField } from "../ingest/capture.ts";
-import { resolveRates, turnCostMicro, type RateTable } from "../metrics/cost.ts";
+import { resolveRates, turnCostMicro, turnCost, type RateTable } from "../metrics/cost.ts";
 import {
   filterByRange,
   modelRows,
@@ -228,12 +228,17 @@ function costNotes(
   range: { from: number; to: number },
 ): string[] {
   const notes: string[] = [];
-  const tot = totals(turns, ctx.table);
 
-  if (tot.unpricedTurns > 0) {
+  // Counts only, computed directly rather than through totals(): every figure
+  // here is unit-free, and totals() legitimately refuses a set spanning both
+  // sources because it would have to sum two currencies to answer.
+  const turnCount = turns.length;
+  const unpricedTurns = turns.filter((t) => turnCost(t, ctx.table) === null).length;
+
+  if (unpricedTurns > 0) {
     const c = unpricedCauses(turns, ctx.table);
     notes.push(
-      `${tot.unpricedTurns} of ${tot.turns} turns in this range have no cost and are ` +
+      `${unpricedTurns} of ${turnCount} turns in this range have no cost and are ` +
         `excluded from every total: ${c.unknownModelTurns} from an unrecognised model, ` +
         `${c.unknownModifierTurns} from an unrecognised pricing modifier. An excluded ` +
         "turn is a gap, not a zero.",
@@ -243,7 +248,7 @@ function costNotes(
   const sidechain = turns.filter((t) => t.isSidechain).length;
   if (sidechain > 0) {
     notes.push(
-      `${sidechain} of ${tot.turns} turns in this range were made by subagents and are ` +
+      `${sidechain} of ${turnCount} turns in this range were made by subagents and are ` +
         "included in these figures. Subagent work is often routed to a different model " +
         "than the developer selected.",
     );
@@ -252,7 +257,7 @@ function costNotes(
   const unknownSidechain = turns.filter((t) => !isCaptured(t, "isSidechain")).length;
   if (unknownSidechain > 0) {
     notes.push(
-      `${unknownSidechain} of ${tot.turns} turns in this range were ingested before ` +
+      `${unknownSidechain} of ${turnCount} turns in this range were ingested before ` +
         "isSidechain was captured. They are counted as main-conversation turns, so " +
         "subagent counts omit any of them that were subagent turns.",
     );
