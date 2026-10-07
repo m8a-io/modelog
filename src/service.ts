@@ -236,6 +236,15 @@ export class ModelogService {
     };
   }
 
+  /** Turns held per source. Used by the Copilot status command to report what was actually ingested, rather than only what is configured. */
+  sourceCounts(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [source, list] of partitionBySource(this.store.allTurns())) {
+      out[source] = list.length;
+    }
+    return out;
+  }
+
   exportJson(): string {
     return this.store.exportJson();
   }

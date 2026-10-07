@@ -13,7 +13,7 @@ import { openReadOnly, readTurns } from "../src/mcp/readOnlyStore.ts";
 import { SCHEMA_VERSION } from "../src/store/store.ts";
 import type { BillingInfo } from "../src/ingest/billing.ts";
 import type { Turn } from "../src/ingest/types.ts";
-import { FIXTURE_TURNS, makeStore, makeEmptyStore, sqlite, BASE_TS } from "./fixture.ts";
+import { FIXTURE_TURNS, makeStore, makeEmptyStore, sqlite, BASE_TS, turn } from "./fixture.ts";
 
 const API_BILLING: BillingInfo = { mode: "api", detected: true, rawType: "prepaid" };
 const SUB_BILLING: BillingInfo = { mode: "subscription", detected: false, rawType: null };
@@ -345,4 +345,65 @@ test("an absent store yields no-data with no definitions at all", async () => {
   assert.equal(env.status, "no-data");
   assert.equal(env.data, null, "no-data must never surface as an empty-but-present store");
   assert.ok(env.notes.length > 0);
+});
+
+// --- sources (PRD §4.5) ------------------------------------------------------
+
+test("definitions state that costs from different sources are not comparable", () => {
+  const d = defs();
+  assert.match(d.sources.costIsNotComparable, /different units/i);
+  assert.match(d.sources.costIsNotComparable, /never summed, divided, or placed in one ratio/i);
+  // The same model id appearing under both sources is the specific trap.
+  assert.match(d.sources.costIsNotComparable, /same model id/i);
+});
+
+test("definitions distinguish a measured cost from a derived one", () => {
+  const mixed = [...FIXTURE_TURNS, turn({ uuid: "c1", source: "copilot", costNanoAiu: 5 })];
+  const d = defs(mixed);
+  const byName = Object.fromEntries(d.sources.observed.map((s) => [s.source, s]));
+  assert.match(byName["copilot"]!.costMethod, /measured/i);
+  assert.match(byName["claude-code"]!.costMethod, /derived/i);
+  assert.equal(byName["copilot"]!.unit, "aiu_nano");
+  assert.equal(byName["claude-code"]!.unit, "usd_micro");
+});
+
+test("definitions name the fields a source does not report, so nulls are not read as zeros", () => {
+  const mixed = [...FIXTURE_TURNS, turn({ uuid: "c1", source: "copilot", costNanoAiu: 5 })];
+  const copilot = defs(mixed).sources.observed.find((s) => s.source === "copilot")!;
+  const joined = copilot.fieldsNotReported.join(" ");
+  assert.match(joined, /cwd/);
+  assert.match(joined, /gitBranch/);
+  assert.match(joined, /thinkingTokens/);
+});
+
+test("definitions explain what an unknown token breakdown does and does not mean", () => {
+  const d = defs();
+  // The distinction that matters: the cost is still known, only the split is not.
+  assert.match(d.sources.tokenBreakdown, /cost is known and measured/i);
+  assert.match(d.sources.tokenBreakdown, /cache hit rate/i);
+});
+
+test("a store with one source describes one source, rather than asserting a second", () => {
+  const d = defs();
+  assert.equal(d.sources.observed.length, 1);
+  assert.equal(d.sources.observed[0]!.source, "claude-code");
+});
+
+test("definitions build over a store holding both sources", () => {
+  // buildDefinitions describes the whole store, so it must not use the
+  // aggregates that refuse a mixed set.
+  const mixed = [...FIXTURE_TURNS, turn({ uuid: "c1", source: "copilot", costNanoAiu: 5 })];
+  const d = defs(mixed);
+  assert.equal(d.store.turns, mixed.length);
+  assert.equal(d.sources.observed.length, 2);
+});
+
+test("Copilot billing copy states what is known and names what is not", () => {
+  const d = defs();
+  // What is known: the figure is measured, not estimated.
+  assert.match(d.sources.copilotBilling, /measured and reported by Copilot/i);
+  // What is not: Modelog cannot see allowance vs overage, and says so rather
+  // than guessing a plan, which would need auth or a network call.
+  assert.match(d.sources.copilotBilling, /not visible to Modelog/i);
+  assert.match(d.sources.copilotBilling, /not a bill/i);
 });

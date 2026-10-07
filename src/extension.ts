@@ -14,6 +14,7 @@ import {
 } from "./mcp/claudeConfig.ts";
 import { readClaudeConfig, backupAndWriteClaudeConfig } from "./mcp/claudeConfigFile.ts";
 import { isNodeOnPath } from "./mcp/nodeOnPath.ts";
+import { findCopilotLogs } from "./ingest/copilot.ts";
 
 let service: ModelogService | undefined;
 let watcher: LogWatcher | undefined;
@@ -75,6 +76,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("modelog.disableMcpServer", () => disableMcpServer()),
     vscode.commands.registerCommand("modelog.copyMcpConfiguration", () => copyMcpConfiguration(context, cfg)),
     vscode.commands.registerCommand("modelog.mcpServerStatus", () => showMcpServerStatus(context)),
+    vscode.commands.registerCommand("modelog.enableCopilotAnalysis", () => enableCopilotAnalysis()),
+    vscode.commands.registerCommand("modelog.disableCopilotAnalysis", () => disableCopilotAnalysis()),
+    vscode.commands.registerCommand("modelog.copilotStatus", () => showCopilotStatus(context, cfg)),
   );
 
   // Live updates: an active session appends to its log constantly, so the
@@ -352,6 +356,147 @@ async function copyMcpConfiguration(
     'Modelog: MCP server configuration copied to the clipboard. Paste it into your client\'s MCP config ' +
       '(for Claude Code specifically, use "Modelog: Enable MCP Server" instead).',
   );
+}
+
+// --- Copilot analysis opt-in (PRD §7.1, open question 15) -------------------
+
+/** Copilot's own setting. Note the `.enabled` suffix: the shorter path is the section, and reads as undefined. */
+const COPILOT_LOGGING_SECTION = "github.copilot.chat";
+const COPILOT_LOGGING_KEY = "agentDebugLog.fileLogging.enabled";
+
+function copilotLoggingEnabled(): boolean {
+  return (
+    vscode.workspace.getConfiguration(COPILOT_LOGGING_SECTION).get<boolean>(COPILOT_LOGGING_KEY) ===
+    true
+  );
+}
+
+function copilotChatInstalled(): boolean {
+  return vscode.extensions.getExtension("GitHub.copilot-chat") !== undefined;
+}
+
+/**
+ * The only route to per-turn Copilot data is a Copilot setting that is off by
+ * default and, when on, makes Copilot write **full prompts and code context**
+ * to local unencrypted files that do not otherwise exist.
+ *
+ * That is in direct tension with Modelog's central claim (PRD §8.1), so the
+ * decision (open question 15, resolved) is: **explicit opt-in, never a
+ * prompt.** Modelog does not raise this at activation, in onboarding, or on
+ * seeing that Copilot is installed. A user who wants it runs this command and
+ * is told plainly what it does first. A user who already has it on is read
+ * silently, with no notification in either direction — and is never nagged to
+ * turn it off either.
+ *
+ * Modelog itself never reads the prompt content in those files; the point of
+ * the warning is that the files will exist on disk for anything else to read.
+ */
+async function enableCopilotAnalysis(): Promise<void> {
+  if (!copilotChatInstalled()) {
+    void vscode.window.showErrorMessage(
+      "Modelog: GitHub Copilot Chat is not installed, so there is nothing to enable.",
+    );
+    return;
+  }
+
+  if (copilotLoggingEnabled()) {
+    void vscode.window.showInformationMessage(
+      "Modelog: Copilot's debug logging is already on, and Modelog is already reading what it writes. Nothing to change.",
+    );
+    return;
+  }
+
+  const CONFIRM = "Enable logging";
+  const choice = await vscode.window.showWarningMessage(
+    "Modelog: turn on Copilot's debug logging?",
+    {
+      modal: true,
+      detail:
+        `This sets ${COPILOT_LOGGING_SECTION}.${COPILOT_LOGGING_KEY} to true in your user settings.\n\n` +
+        "What that does: Copilot Chat will write your full prompts and code context to " +
+        "local, unencrypted debug-log files that do not otherwise exist. Modelog reads " +
+        "only the token counts and costs in those files and never the prompt content — " +
+        "but the files will exist on disk, and anything else on this machine can read them.\n\n" +
+        "It is also not retroactive: only Copilot sessions started after this takes effect " +
+        "produce data. Sessions you have already had cannot be measured.\n\n" +
+        "Without this, Modelog can show Claude Code figures but not Copilot ones.",
+    },
+    CONFIRM,
+  );
+  if (choice !== CONFIRM) return;
+
+  try {
+    await vscode.workspace
+      .getConfiguration(COPILOT_LOGGING_SECTION)
+      .update(COPILOT_LOGGING_KEY, true, vscode.ConfigurationTarget.Global);
+  } catch (e) {
+    void vscode.window.showErrorMessage(
+      `Modelog: could not update the setting: ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return;
+  }
+
+  void vscode.window.showInformationMessage(
+    "Modelog: Copilot debug logging is on. Start a new Copilot Chat session to produce data — existing sessions are not logged retroactively.",
+  );
+}
+
+async function disableCopilotAnalysis(): Promise<void> {
+  if (!copilotLoggingEnabled()) {
+    void vscode.window.showInformationMessage("Modelog: Copilot's debug logging is already off.");
+    return;
+  }
+
+  const CONFIRM = "Disable logging";
+  const choice = await vscode.window.showWarningMessage(
+    "Modelog: turn off Copilot's debug logging?",
+    {
+      modal: true,
+      detail:
+        `This sets ${COPILOT_LOGGING_SECTION}.${COPILOT_LOGGING_KEY} to false.\n\n` +
+        "Copilot will stop writing new debug logs, so Modelog will have no Copilot data " +
+        "for sessions after this point.\n\n" +
+        "It does NOT delete logs already written. Those files stay on disk until you " +
+        'remove them yourself — use "Modelog: Copilot Status" to see where they are.',
+    },
+    CONFIRM,
+  );
+  if (choice !== CONFIRM) return;
+
+  await vscode.workspace
+    .getConfiguration(COPILOT_LOGGING_SECTION)
+    .update(COPILOT_LOGGING_KEY, false, vscode.ConfigurationTarget.Global);
+
+  void vscode.window.showInformationMessage(
+    "Modelog: Copilot debug logging is off. Previously written logs were not deleted.",
+  );
+}
+
+/** Reports each condition separately, because they fail independently and a single "Copilot: off" cannot say which. */
+function showCopilotStatus(
+  context: vscode.ExtensionContext,
+  cfg: () => vscode.WorkspaceConfiguration,
+): void {
+  const installed = copilotChatInstalled();
+  const logging = copilotLoggingEnabled();
+  const roots = copilotLogPaths(context, cfg);
+  const files = roots.flatMap((r) => findCopilotLogs(r));
+  const stored = service?.sourceCounts()["copilot"] ?? 0;
+
+  const lines = [
+    `Copilot Chat installed: ${installed ? "yes" : "no"}`,
+    `Copilot debug logging: ${logging ? "on" : "off"}` +
+      (logging ? "" : ' — run "Modelog: Enable Copilot Analysis" to turn it on'),
+    `Session logs found: ${files.length}`,
+    `Copilot turns stored: ${stored}`,
+    "",
+    roots.length > 0 ? `Scanning: ${roots.join(", ")}` : "Copilot ingest is disabled in settings.",
+  ];
+
+  void vscode.window.showInformationMessage("Modelog: Copilot status", {
+    modal: true,
+    detail: lines.join("\n"),
+  });
 }
 
 /**

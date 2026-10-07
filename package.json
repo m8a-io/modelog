@@ -60,6 +60,18 @@
       {
         "command": "modelog.mcpServerStatus",
         "title": "Modelog: MCP Server Status"
+      },
+      {
+        "command": "modelog.enableCopilotAnalysis",
+        "title": "Modelog: Enable Copilot Analysis"
+      },
+      {
+        "command": "modelog.disableCopilotAnalysis",
+        "title": "Modelog: Disable Copilot Analysis"
+      },
+      {
+        "command": "modelog.copilotStatus",
+        "title": "Modelog: Copilot Status"
       }
     ],
     "configuration": {

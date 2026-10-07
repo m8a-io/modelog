@@ -5,8 +5,8 @@ import {
   type CapturedField,
 } from "../ingest/capture.ts";
 import { resolveRates, turnCostMicro, type PricingFile, type RateTable } from "../metrics/cost.ts";
-import { totals } from "../metrics/aggregate.ts";
-import { billingCopy, type BillingInfo } from "../ingest/billing.ts";
+import { partitionBySource } from "../metrics/aggregate.ts";
+import { billingCopy, copilotBillingCopy, type BillingInfo } from "../ingest/billing.ts";
 import { staleRateTableNote } from "./envelope.ts";
 
 /**
@@ -40,8 +40,10 @@ export const DEFINITIONS_DESCRIPTION =
   "and schema version of the stored data. Several of these metrics have " +
   "semantics that field names do not convey — a turn is not an inference " +
   "call, subagent turns are included in per-model figures, and an unavailable " +
-  "cost is a gap rather than a zero. The other Modelog tools return numbers " +
-  "whose meaning depends on these definitions. Takes no arguments.";
+  "cost is a gap rather than a zero. It also states which assistants the data " +
+  "came from and why their costs are in different units and must not be " +
+  "compared or summed. The other Modelog tools return numbers whose meaning " +
+  "depends on these definitions. Takes no arguments.";
 
 export interface ModifierDefinition {
   field: string;
@@ -101,6 +103,26 @@ export interface Definitions {
       };
     };
   };
+  /**
+   * The assistants represented in the store, and the ways they differ that
+   * change what a figure means.
+   */
+  sources: {
+    definition: string;
+    costIsNotComparable: string;
+    units: string[];
+    observed: Array<{
+      source: string;
+      turns: number;
+      unit: string;
+      costMethod: string;
+      /** Fields this source does not report at all, so they read as null. */
+      fieldsNotReported: string[];
+    }>;
+    /** Present whether or not Copilot turns exist, so the caveat is never missing when they do. */
+    copilotBilling: string;
+    tokenBreakdown: string;
+  };
   /** Metrics the query tools return whose definition is not in their name. */
   derivedMetrics: {
     cacheHitRate: string;
@@ -146,7 +168,16 @@ export interface DefinitionsInput {
 
 export function buildDefinitions(input: DefinitionsInput): Definitions {
   const { turns, pricing, table, billing, billingFromEnv, schemaVersion } = input;
-  const tot = totals(turns, table);
+
+  // Counts and bounds only, computed directly. `totals()` refuses a set
+  // spanning both sources — correctly, since it would have to sum dollars and
+  // credits to answer — and this tool describes the whole store.
+  const tot = {
+    turns: turns.length,
+    sessions: new Set(turns.map((t) => t.sessionId)).size,
+    firstTs: turns.length === 0 ? null : Math.min(...turns.map((t) => t.ts)),
+    lastTs: turns.length === 0 ? null : Math.max(...turns.map((t) => t.ts)),
+  };
 
   return {
     turn: {
@@ -234,6 +265,38 @@ export function buildDefinitions(input: DefinitionsInput): Definitions {
         ],
         observed: unavailableCostCounts(turns, table),
       },
+    },
+
+    sources: {
+      definition:
+        "Every turn records which assistant produced it. Modelog ingests " +
+        "Claude Code and GitHub Copilot, and the two differ in ways that " +
+        "change what a figure means, not merely where it came from.",
+      costIsNotComparable:
+        "Costs from different sources are in different units and are never " +
+        "converted into one another. A Claude Code cost is in micro-dollars " +
+        "and is derived by Modelog from token counts and a rate table. A " +
+        "Copilot cost is in nano-AIU — Copilot's own credits — and is " +
+        "measured and reported by Copilot itself per request. There is no " +
+        "conversion between them anywhere in Modelog, and figures from two " +
+        "sources are never summed, divided, or placed in one ratio. Note " +
+        "that the same model id can appear under both sources; those are " +
+        "different billing relationships, not the same number twice.",
+      units: [
+        "usd_micro — millionths of a US dollar, derived from tokens and rates",
+        "aiu_nano — billionths of an AIU credit, as measured and reported by Copilot",
+      ],
+      observed: observedSources(turns),
+      copilotBilling: copilotBillingCopy().detail,
+      tokenBreakdown:
+        "Copilot bills cache-write tokens but does not report them, so " +
+        "Modelog recovers them by solving Copilot's own billing equation " +
+        "against the rate card written beside each session. A turn whose " +
+        'breakdown is "unknown" is one where that solve had no exact answer — ' +
+        "its total input tokens are known and its cost is known and measured, " +
+        "but the split between fresh input and cache writes is not. Cache hit " +
+        "rate is therefore not meaningful for those turns. Claude Code " +
+        'reports every class outright, so its turns read "reported".',
     },
 
     derivedMetrics: {
@@ -493,4 +556,37 @@ function formatRatio(numerator: number, scale: number): string {
 
 function toIso(ts: number | null): string | null {
   return ts === null ? null : new Date(ts).toISOString();
+}
+
+/**
+ * What each source actually contributed, measured from the store.
+ *
+ * Computed rather than asserted, for the same reason the sidechain breakdown
+ * is: which assistants a developer uses is a property of their data. A store
+ * with no Copilot turns says so by returning one entry, not by carrying prose
+ * about a source that is not there.
+ */
+function observedSources(turns: readonly Turn[]): Definitions["sources"]["observed"] {
+  const out: Definitions["sources"]["observed"] = [];
+  for (const [source, list] of partitionBySource(turns)) {
+    out.push({
+      source,
+      turns: list.length,
+      unit: source === "copilot" ? "aiu_nano" : "usd_micro",
+      costMethod:
+        source === "copilot"
+          ? "measured and reported by the source per request"
+          : "derived by Modelog from token counts and a dated rate table",
+      fieldsNotReported:
+        source === "copilot"
+          ? [
+              "cwd — not present in Copilot's logs; the workspace identifier is a hash that cannot be resolved to a path",
+              "gitBranch — not present in Copilot's logs",
+              "thinkingTokens — not reported separately; always 0 for this source, which is a gap rather than a measurement of zero",
+              "speed, inferenceGeo — Anthropic API pricing modifiers that do not apply to a call brokered by Copilot",
+            ]
+          : ["costNanoAiu — this source does not report a cost; it is derived instead"],
+    });
+  }
+  return out.sort((a, b) => a.source.localeCompare(b.source));
 }

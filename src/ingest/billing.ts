@@ -61,3 +61,25 @@ export function billingCopy(info: BillingInfo): { label: string; detail: string 
       "relative column across models rather than reading totals as spend.",
   };
 }
+
+/**
+ * How to describe Copilot's figures.
+ *
+ * Deliberately says nothing about which plan the user is on or whether a
+ * credit came out of an allowance. Detecting that needs auth state or a
+ * network call, and §8.1 permits neither — so rather than guess at a plan,
+ * this states exactly what is known and names what is not. The statement is
+ * true on every Copilot plan, which is why it is the right thing to say.
+ */
+export function copilotBillingCopy(): { label: string; detail: string } {
+  return {
+    label: "Copilot credits",
+    detail:
+      "Copilot figures are credits consumed, as measured and reported by Copilot " +
+      "itself against the rate card in force for each session — not an estimate " +
+      "Modelog computed. Whether those credits came out of a monthly allowance or " +
+      "were billed as overage is not visible to Modelog, so a credit total is not a " +
+      "bill. Credits are never converted to dollars, and Copilot and Claude Code " +
+      "figures are never added together or compared.",
+  };
+}
