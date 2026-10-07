@@ -1,16 +1,60 @@
-import type { Turn } from "../ingest/types.ts";
+import type { Turn, TurnSource } from "../ingest/types.ts";
 import { uncapturedFields, type CapturedField } from "../ingest/capture.ts";
-import { turnCostMicro, type RateTable } from "./cost.ts";
+import { turnCost, type RateTable, type Unit } from "./cost.ts";
+
+/**
+ * Split turns by which assistant produced them.
+ *
+ * Every function below that touches money takes **one** partition, because
+ * the sources do not share a unit and summing across them would produce a
+ * number denominated in nothing (PRD §4.5, §8.2). Callers partition first and
+ * aggregate per source; there is no "all sources" total and there should not
+ * be one.
+ */
+export function partitionBySource(turns: readonly Turn[]): Map<TurnSource, Turn[]> {
+  const out = new Map<TurnSource, Turn[]>();
+  for (const t of turns) {
+    let list = out.get(t.source);
+    if (!list) out.set(t.source, (list = []));
+    list.push(t);
+  }
+  return out;
+}
+
+/**
+ * The unit a set of turns is denominated in, asserting they agree.
+ *
+ * A mixed set is a programming error — a caller that forgot to partition —
+ * and is caught here rather than silently producing a sum of two currencies.
+ * An empty set reports `usd_micro`, which cannot mislead: there is no nonzero
+ * figure for the unit to be wrong about.
+ */
+export function unitOf(turns: readonly Turn[]): Unit {
+  let unit: Unit | null = null;
+  for (const t of turns) {
+    const u: Unit = t.source === "copilot" ? "aiu_nano" : "usd_micro";
+    if (unit === null) unit = u;
+    else if (unit !== u) {
+      throw new Error(
+        "aggregate: turns from more than one source were passed together; " +
+          "partitionBySource() first — their costs are in different units and cannot be summed",
+      );
+    }
+  }
+  return unit ?? "usd_micro";
+}
 
 /** One row of the model comparison table — the hero surface (DESIGN.md §10.2). */
 export interface ModelRow {
   model: string;
   turns: number;
   sessions: number;
-  totalCostMicro: number;
-  /** Turns whose model had no rate; their cost is excluded from totals. */
+  /** Denominated in `unit`. Not micro-dollars unless `unit` says so. */
+  totalCost: number;
+  unit: Unit;
+  /** Turns whose cost was unavailable; excluded from `totalCost`. */
   unpricedTurns: number;
-  costPerTurnMicro: number | null;
+  costPerTurn: number | null;
   turnsPerSession: number;
   cacheHitRate: number;
   inferenceCalls: number;
@@ -21,7 +65,9 @@ export interface ModelRow {
 export interface Totals {
   turns: number;
   sessions: number;
-  totalCostMicro: number;
+  /** Denominated in `unit`. */
+  totalCost: number;
+  unit: Unit;
   unpricedTurns: number;
   firstTs: number | null;
   lastTs: number | null;
@@ -44,6 +90,7 @@ export function filterByRange(turns: readonly Turn[], from: number, to: number):
 }
 
 export function modelRows(turns: readonly Turn[], table: RateTable): ModelRow[] {
+  const unit = unitOf(turns);
   const byModel = new Map<string, Turn[]>();
   for (const t of turns) {
     let list = byModel.get(t.model);
@@ -62,9 +109,9 @@ export function modelRows(turns: readonly Turn[], table: RateTable): ModelRow[] 
     const sessions = new Set<string>();
 
     for (const t of list) {
-      const c = turnCostMicro(t, table);
+      const c = turnCost(t, table);
       if (c === null) unpriced++;
-      else cost += c;
+      else cost += c.amount;
 
       cacheRead += t.cacheReadTokens;
       inputSide +=
@@ -79,9 +126,10 @@ export function modelRows(turns: readonly Turn[], table: RateTable): ModelRow[] 
       model,
       turns: list.length,
       sessions: sessions.size,
-      totalCostMicro: cost,
+      totalCost: cost,
+      unit,
       unpricedTurns: unpriced,
-      costPerTurnMicro: priced > 0 ? Math.round(cost / priced) : null,
+      costPerTurn: priced > 0 ? Math.round(cost / priced) : null,
       turnsPerSession: sessions.size > 0 ? list.length / sessions.size : 0,
       cacheHitRate: inputSide > 0 ? cacheRead / inputSide : 0,
       inferenceCalls: calls,
@@ -90,11 +138,13 @@ export function modelRows(turns: readonly Turn[], table: RateTable): ModelRow[] 
   }
 
   // Cheapest per turn first — the comparison the product exists to make.
-  rows.sort((a, b) => (a.costPerTurnMicro ?? Infinity) - (b.costPerTurnMicro ?? Infinity));
+  // Safe to sort across rows because every row here shares one unit.
+  rows.sort((a, b) => (a.costPerTurn ?? Infinity) - (b.costPerTurn ?? Infinity));
   return rows;
 }
 
 export function totals(turns: readonly Turn[], table: RateTable): Totals {
+  const unit = unitOf(turns);
   let cost = 0;
   let unpriced = 0;
   let first: number | null = null;
@@ -105,9 +155,9 @@ export function totals(turns: readonly Turn[], table: RateTable): Totals {
   const sessions = new Set<string>();
 
   for (const t of turns) {
-    const c = turnCostMicro(t, table);
+    const c = turnCost(t, table);
     if (c === null) unpriced++;
-    else cost += c;
+    else cost += c.amount;
     sessions.add(t.sessionId);
     if (first === null || t.ts < first) first = t.ts;
     if (last === null || t.ts > last) last = t.ts;
@@ -119,7 +169,8 @@ export function totals(turns: readonly Turn[], table: RateTable): Totals {
   return {
     turns: turns.length,
     sessions: sessions.size,
-    totalCostMicro: cost,
+    totalCost: cost,
+    unit,
     unpricedTurns: unpriced,
     firstTs: first,
     lastTs: last,
@@ -156,7 +207,9 @@ export interface SessionRow {
   uncapturedFields: CapturedField[];
   /** Turns with at least one uncaptured field. */
   uncapturedTurns: number;
-  totalCostMicro: number;
+  /** Denominated in `unit`. */
+  totalCost: number;
+  unit: Unit;
   unpricedTurns: number;
   cacheHitRate: number;
 }
@@ -194,9 +247,9 @@ export function sessionRows(turns: readonly Turn[], table: RateTable): SessionRo
     let uncapturedTurns = 0;
 
     for (const t of list) {
-      const c = turnCostMicro(t, table);
+      const c = turnCost(t, table);
       if (c === null) unpriced++;
-      else cost += c;
+      else cost += c.amount;
 
       calls += t.iterations;
       if (t.isSidechain) sidechain++;
@@ -228,7 +281,11 @@ export function sessionRows(turns: readonly Turn[], table: RateTable): SessionRo
       entrypoints: [...entrypoints].sort(),
       uncapturedFields: [...uncaptured].sort(),
       uncapturedTurns,
-      totalCostMicro: cost,
+      totalCost: cost,
+      // Per session, not per call: a session belongs to exactly one source,
+      // so a mixed list of sessions is legitimate here even though a mixed
+      // list of turns is not legitimate anywhere that sums them.
+      unit: unitOf(list),
       unpricedTurns: unpriced,
       cacheHitRate: inputSide > 0 ? cacheRead / inputSide : 0,
     });
@@ -334,9 +391,9 @@ export function dailySeries(turns: readonly Turn[], table: RateTable): DailySeri
       row = days.map(() => ({ cost: 0, turns: 0 }));
       acc.set(t.model, row);
     }
-    const c = turnCostMicro(t, table);
+    const c = turnCost(t, table);
     if (c === null) continue; // unpriced turns cannot enter a cost series
-    row[i]!.cost += c;
+    row[i]!.cost += c.amount;
     row[i]!.turns += 1;
   }
 

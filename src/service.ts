@@ -10,6 +10,7 @@ import {
   filterByRange,
   dailySeries,
   dayKey,
+  partitionBySource,
 } from "./metrics/aggregate.ts";
 import type { ViewState, ModelRowView, ChartData } from "./ui/protocol.ts";
 import { detectBilling, billingCopy, type BillingInfo } from "./ingest/billing.ts";
@@ -92,38 +93,64 @@ export class ModelogService {
     }
   }
 
+  /**
+   * The Claude Code turns only.
+   *
+   * The dashboard and status bar render one money unit end to end, so they
+   * show one source. Copilot's figures are credits and must never be drawn on
+   * a dollar axis or summed into a dollar total (PRD §4.5, §8.2); presenting
+   * both properly is a design question, not plumbing, and is deferred. Until
+   * then Copilot data is reachable through the MCP tools, and its absence
+   * here is reported rather than left silent — see `sourceGapWarnings`.
+   */
+  private claudeCodeTurns(turns: readonly Turn[]): Turn[] {
+    return partitionBySource(turns).get("claude-code") ?? [];
+  }
+
+  /** Says so when a source exists in the store but is not on this surface. */
+  private sourceGapWarnings(turns: readonly Turn[]): string[] {
+    const copilot = partitionBySource(turns).get("copilot") ?? [];
+    if (copilot.length === 0) return [];
+    return [
+      `${copilot.length} Copilot turn(s) in range are not shown here. Copilot bills in ` +
+        `credits, which cannot share an axis or a total with dollars, so this view is ` +
+        `Claude Code only. Copilot figures are available through the MCP tools.`,
+    ];
+  }
+
   statusText(): string {
     const now = Date.now();
-    const turns = this.store.allTurns();
+    const turns = this.claudeCodeTurns(this.store.allTurns());
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayCost = totals(filterByRange(turns, today.getTime(), now), this.table).totalCostMicro;
-    const monthCost = totals(filterByRange(turns, now - 30 * DAY_MS, now), this.table).totalCostMicro;
+    const todayCost = totals(filterByRange(turns, today.getTime(), now), this.table).totalCost;
+    const monthCost = totals(filterByRange(turns, now - 30 * DAY_MS, now), this.table).totalCost;
     return `$(pulse) ${formatMicroUsd(todayCost)} · ${formatMicroUsd(monthCost)}/30d`;
   }
 
   viewState(rangeDays: number | null): ViewState {
     const now = Date.now();
     const from = rangeDays === null ? 0 : now - rangeDays * DAY_MS;
-    const turns = filterByRange(this.store.allTurns(), from, now);
+    const inRange = filterByRange(this.store.allTurns(), from, now);
+    const turns = this.claudeCodeTurns(inRange);
 
     const tot = totals(turns, this.table);
     const rows = modelRows(turns, this.table);
-    const cheapest = rows.find((r) => r.costPerTurnMicro !== null)?.costPerTurnMicro ?? null;
+    const cheapest = rows.find((r) => r.costPerTurn !== null)?.costPerTurn ?? null;
 
     const viewRows: ModelRowView[] = rows.map((r) => ({
       model: r.model,
       turns: r.turns,
       sessions: r.sessions,
-      costPerTurn: r.costPerTurnMicro === null ? "unavailable" : formatMicroUsd(r.costPerTurnMicro),
+      costPerTurn: r.costPerTurn === null ? "unavailable" : formatMicroUsd(r.costPerTurn),
       // The relative column leads over absolute dollars (PRD §8.2).
       relative:
-        r.costPerTurnMicro === null || cheapest === null || cheapest === 0
+        r.costPerTurn === null || cheapest === null || cheapest === 0
           ? "—"
-          : `${(r.costPerTurnMicro / cheapest).toFixed(2)}x`,
+          : `${(r.costPerTurn / cheapest).toFixed(2)}x`,
       turnsPerSession: r.turnsPerSession.toFixed(1),
       cacheHitRate: `${(r.cacheHitRate * 100).toFixed(1)}%`,
-      total: formatMicroUsd(r.totalCostMicro),
+      total: formatMicroUsd(r.totalCost),
       unpricedTurns: r.unpricedTurns,
     }));
 
@@ -143,13 +170,13 @@ export class ModelogService {
       totals: {
         turns: tot.turns,
         sessions: tot.sessions,
-        total: formatMicroUsd(tot.totalCostMicro),
+        total: formatMicroUsd(tot.totalCost),
         unpricedTurns: tot.unpricedTurns,
       },
       rows: viewRows,
       chart,
       switches,
-      warnings: [...this.warnings],
+      warnings: [...this.warnings, ...this.sourceGapWarnings(inRange)],
     };
   }
 

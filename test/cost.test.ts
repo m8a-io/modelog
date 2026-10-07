@@ -1,7 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildRateTable, turnCostMicro, formatMicroUsd, type PricingFile } from "../src/metrics/cost.ts";
+import { readFile } from "node:fs/promises";
+import {
+  buildRateTable,
+  turnCostMicro,
+  formatMicroUsd,
+  turnCost,
+  formatMoney,
+  type PricingFile,
+} from "../src/metrics/cost.ts";
 import type { Turn } from "../src/ingest/types.ts";
 
 const pricing: PricingFile = JSON.parse(readFileSync("data/pricing.json", "utf8"));
@@ -242,4 +250,51 @@ test("cache-read is per-model where the card sets it per-model", () => {
   for (const r of [o5, o55, f51]) {
     for (const v of Object.values(r)) assert.ok(Number.isInteger(v), `${v} not an integer`);
   }
+});
+
+// --- units (PRD §8.2, §4.5) --------------------------------------------------
+
+test("a Claude Code turn costs micro-dollars, derived from tokens and rates", () => {
+  const t = turn({ model: "claude-sonnet-5", inputTokens: 1_000_000 });
+  const money = turnCost(t, table)!;
+  assert.equal(money.unit, "usd_micro");
+  assert.equal(money.amount, 2_000_000);
+});
+
+test("a Copilot turn costs nano-AIU, used as measured rather than recomputed", () => {
+  // Real figures from a captured session: the card would price these tokens
+  // identically, but the measured value is what is reported.
+  const t = turn({
+    source: "copilot",
+    model: "gpt-5.6-terra",
+    costNanoAiu: 6_171_550_000,
+    inputTokens: 3,
+  });
+  const money = turnCost(t, table)!;
+  assert.equal(money.unit, "aiu_nano");
+  assert.equal(money.amount, 6_171_550_000);
+});
+
+test("a Copilot turn with no measured cost is null, not zero", () => {
+  const t = turn({ source: "copilot", model: "gpt-5.6-terra", costNanoAiu: null });
+  assert.equal(turnCost(t, table), null);
+});
+
+test("an unknown model still costs null on the Claude Code path", () => {
+  assert.equal(turnCost(turn({ model: "not-a-model" }), table), null);
+});
+
+test("credits are formatted as credits and never as dollars", () => {
+  assert.equal(formatMoney({ amount: 6_171_550_000, unit: "aiu_nano" }), "6.17 credits");
+  assert.equal(formatMoney({ amount: 0, unit: "aiu_nano" }), "0 credits");
+  assert.equal(formatMoney({ amount: 1_000_000, unit: "aiu_nano" }), "<0.01 credits");
+  assert.equal(formatMoney({ amount: 2_000_000, unit: "usd_micro" }), "$2.00");
+});
+
+test("the two units have no conversion function, which is what forbids a cross-source ratio", async () => {
+  // Invariant 5 is enforced by absence: if someone adds a converter, a
+  // cross-vendor cost ratio becomes expressible and this test should fail
+  // so the decision is made deliberately rather than by autocomplete.
+  const src = await readFile("src/metrics/cost.ts", "utf8");
+  assert.doesNotMatch(src, /aiu_nano.*=>.*usd_micro|toUsdMicro|toCredits|convertUnit/i);
 });

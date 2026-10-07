@@ -7,6 +7,7 @@ import {
   developerModelSwitches,
   sessionRows,
   totals,
+  partitionBySource,
   type ModelRow,
 } from "../metrics/aggregate.ts";
 import {
@@ -100,6 +101,21 @@ export function vendorOf(model: string): string {
   if (model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3")) return "openai";
   if (model.startsWith("gemini-")) return "google";
   return "unknown";
+}
+
+/**
+ * The key rows are grouped by, and inside which a cost ratio may be computed.
+ *
+ * **Source first, vendor second.** Vendor alone is not enough: the same model
+ * id reaches a developer through both assistants, so `claude-sonnet-5` run via
+ * Claude Code and via Copilot would otherwise land in one group and be divided
+ * against each other — two different billing relationships in two different
+ * units, which is exactly the comparison PRD §4.5 forbids. §4.5 says it
+ * directly: the surviving distinction is the billing relationship, not the
+ * vendor whose weights ran.
+ */
+export function groupKeyOf(turnSource: string, model: string): string {
+  return `${turnSource}:${vendorOf(model)}`;
 }
 
 // --- shared helpers ----------------------------------------------------------
@@ -298,17 +314,35 @@ export function getDefinitions(ctx: ToolContext): ToolResult<Definitions> {
 
 // --- §8.2 modelog_get_summary -------------------------------------------------
 
+/** Per-source money. Costs never blend across sources; counts may. */
+export interface SourceCost {
+  source: string;
+  turns: number;
+  totalCost: Money;
+  /** Over PRICED turns only — averaging in an unpriced turn would understate it. */
+  costPerTurn: Money | null;
+  unpricedTurns: number;
+  unpricedCauses: { unknownModelTurns: number; unknownModifierTurns: number };
+}
+
 export interface Summary {
   turns: number;
   /** A turn is not an inference call; this is the call count. */
   inferenceCalls: number;
   sessions: number;
   sidechainTurns: number;
-  totalCost: Money;
-  /** Over PRICED turns only — averaging in an unpriced turn would understate it. */
-  costPerTurn: Money | null;
+  /**
+   * One entry per assistant present in the range — **always an array, even
+   * for a single source**, matching how `compare_models` always nests under a
+   * group. There is deliberately no single blended total: the sources bill in
+   * different units with no defensible conversion between them, so one number
+   * covering both would be denominated in nothing (PRD §4.5, §8.2).
+   *
+   * The counts above (turns, sessions, cache hit rate) do blend, because they
+   * are unit-free and a cross-source count is a real quantity.
+   */
+  costBySource: SourceCost[];
   unpricedTurns: number;
-  unpricedCauses: { unknownModelTurns: number; unknownModifierTurns: number };
   cacheHitRate: number;
   firstTurn: string | null;
   lastTurn: string | null;
@@ -319,21 +353,53 @@ export function getSummary(ctx: ToolContext, args: RangeArgsInput): ToolResult<S
   if (!r.ok) return { ok: false, error: r.error };
 
   const turns = filterByRange(ctx.turns, r.from, r.to);
-  const tot = totals(turns, ctx.table);
-  const priced = tot.turns - tot.unpricedTurns;
+
+  // Unit-free aggregates over everything; money strictly per source.
+  const sessions = new Set(turns.map((t) => t.sessionId));
+  let calls = 0;
+  let cacheRead = 0;
+  let inputSide = 0;
+  let unpricedAll = 0;
+  for (const t of turns) {
+    calls += t.iterations;
+    cacheRead += t.cacheReadTokens;
+    inputSide += t.inputTokens + t.cacheReadTokens + t.cacheWrite5mTokens + t.cacheWrite1hTokens;
+  }
+
+  const costBySource: SourceCost[] = [];
+  let firstTs: number | null = null;
+  let lastTs: number | null = null;
+  for (const [source, sourceTurns] of partitionBySource(turns)) {
+    const tot = totals(sourceTurns, ctx.table);
+    const priced = tot.turns - tot.unpricedTurns;
+    unpricedAll += tot.unpricedTurns;
+    if (tot.firstTs !== null && (firstTs === null || tot.firstTs < firstTs)) firstTs = tot.firstTs;
+    if (tot.lastTs !== null && (lastTs === null || tot.lastTs > lastTs)) lastTs = tot.lastTs;
+
+    costBySource.push({
+      source,
+      turns: tot.turns,
+      totalCost: toMoney(tot.totalCost, tot.unit),
+      costPerTurn: toMoneyOrNull(
+        priced > 0 ? Math.round(tot.totalCost / priced) : null,
+        tot.unit,
+      ),
+      unpricedTurns: tot.unpricedTurns,
+      unpricedCauses: unpricedCauses(sourceTurns, ctx.table),
+    });
+  }
+  costBySource.sort((a, b) => a.source.localeCompare(b.source));
 
   const data: Summary = {
-    turns: tot.turns,
-    inferenceCalls: tot.inferenceCalls,
-    sessions: tot.sessions,
+    turns: turns.length,
+    inferenceCalls: calls,
+    sessions: sessions.size,
     sidechainTurns: turns.filter((t) => t.isSidechain).length,
-    totalCost: toMoney(tot.totalCostMicro),
-    costPerTurn: toMoneyOrNull(priced > 0 ? Math.round(tot.totalCostMicro / priced) : null),
-    unpricedTurns: tot.unpricedTurns,
-    unpricedCauses: unpricedCauses(turns, ctx.table),
-    cacheHitRate: round4(tot.cacheHitRate),
-    firstTurn: toIso(tot.firstTs),
-    lastTurn: toIso(tot.lastTs),
+    costBySource,
+    unpricedTurns: unpricedAll,
+    cacheHitRate: round4(inputSide > 0 ? cacheRead / inputSide : 0),
+    firstTurn: toIso(firstTs),
+    lastTurn: toIso(lastTs),
   };
 
   return { ok: true, envelope: buildEnvelope(ctx, r, data, costNotes(ctx, turns, r)) };
@@ -358,9 +424,13 @@ export interface ModelComparison {
 }
 
 export interface VendorGroup {
+  /** Which assistant these turns came through. Half of the grouping key. */
+  source: string;
   vendor: string;
   /** The per-turn baseline `relativeToCheapest` is measured against. */
   cheapestModel: string | null;
+  /** The unit every cost in this group is denominated in. */
+  unit: string;
   models: ModelComparison[];
 }
 
@@ -377,47 +447,63 @@ export function compareModels(
 
   const filtered = applyFilters(filterByRange(ctx.turns, r.from, r.to), args);
   const turns = filtered.matched;
-  const rows = modelRows(turns, ctx.table);
+
+  // Partition by source BEFORE aggregating. Two reasons, both load-bearing:
+  // modelRows() refuses a mixed set because the costs are in different units,
+  // and the same model id reaches a developer through both assistants, so
+  // grouping on vendor alone would put a Copilot claude-sonnet-5 and a Claude
+  // Code claude-sonnet-5 in one group and divide them (PRD §4.5).
+  const bySource = partitionBySource(turns);
 
   // Group first, THEN compute ratios. A cheapest-model baseline is only ever
-  // taken within one vendor, so no cross-vendor ratio can be emitted even by
+  // taken within one group, so no cross-group ratio can be emitted even by
   // mistake (PRD §4.5, invariant 5).
-  const byVendor = new Map<string, ModelRow[]>();
-  for (const row of rows) {
-    const v = vendorOf(row.model);
-    let list = byVendor.get(v);
-    if (!list) byVendor.set(v, (list = []));
-    list.push(row);
+  const grouped = new Map<string, { source: string; vendor: string; rows: ModelRow[] }>();
+  for (const [source, sourceTurns] of bySource) {
+    for (const row of modelRows(sourceTurns, ctx.table)) {
+      const vendor = vendorOf(row.model);
+      const key = groupKeyOf(source, row.model);
+      let entry = grouped.get(key);
+      if (!entry) grouped.set(key, (entry = { source, vendor, rows: [] }));
+      entry.rows.push(row);
+    }
   }
 
   const vendors: VendorGroup[] = [];
-  for (const [vendor, list] of byVendor) {
-    const cheapest = list.find((x) => x.costPerTurnMicro !== null) ?? null;
-    const base = cheapest?.costPerTurnMicro ?? null;
+  for (const [, { source, vendor, rows: list }] of grouped) {
+    const cheapest = list.find((x) => x.costPerTurn !== null) ?? null;
+    const base = cheapest?.costPerTurn ?? null;
+    const unit = list[0]!.unit;
 
     vendors.push({
+      source,
       vendor,
       cheapestModel: cheapest?.model ?? null,
+      unit,
       models: list.map((row) => ({
         model: row.model,
         turns: row.turns,
         inferenceCalls: row.inferenceCalls,
         sessions: row.sessions,
         sidechainTurns: row.sidechainTurns,
-        costPerTurn: toMoneyOrNull(row.costPerTurnMicro),
+        costPerTurn: toMoneyOrNull(row.costPerTurn, row.unit),
         relativeToCheapest:
-          row.costPerTurnMicro === null || base === null || base === 0
+          row.costPerTurn === null || base === null || base === 0
             ? null
-            : round4(row.costPerTurnMicro / base),
-        totalCost: toMoney(row.totalCostMicro),
+            : round4(row.costPerTurn / base),
+        totalCost: toMoney(row.totalCost, row.unit),
         turnsPerSession: round4(row.turnsPerSession),
         cacheHitRate: round4(row.cacheHitRate),
         unpricedTurns: row.unpricedTurns,
-        priced: resolveRates(row.model, ctx.table) !== null,
+        // A Copilot turn's cost is measured rather than looked up, so a rate
+        // table miss does not make it unpriced.
+        priced: row.unit === "aiu_nano" || resolveRates(row.model, ctx.table) !== null,
       })),
     });
   }
-  vendors.sort((a, b) => a.vendor.localeCompare(b.vendor));
+  vendors.sort((a, b) =>
+    a.source === b.source ? a.vendor.localeCompare(b.vendor) : a.source.localeCompare(b.source),
+  );
 
   const notes = costNotes(ctx, turns, r);
   if (vendors.length > 1) {
@@ -516,7 +602,7 @@ export function listSessions(
       uncapturedTurns: s.uncapturedTurns,
       branches: s.branches,
       cwds: s.cwds,
-      totalCost: toMoney(s.totalCostMicro),
+      totalCost: toMoney(s.totalCost, s.unit),
       unpricedTurns: s.unpricedTurns,
       cacheHitRate: round4(s.cacheHitRate),
     })),

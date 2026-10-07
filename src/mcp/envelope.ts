@@ -1,4 +1,4 @@
-import { formatMicroUsd } from "../metrics/cost.ts";
+import { formatMoney, type Unit } from "../metrics/cost.ts";
 import type { StoreOpenResult, StoreStatus } from "./readOnlyStore.ts";
 
 /**
@@ -14,20 +14,28 @@ const DAY_MS = 86_400_000;
 const DEFAULT_RANGE_DAYS = 30;
 const STALE_RATE_TABLE_MS = 90 * DAY_MS;
 
-/** Money is always an integer plus an explicit unit (PRD §8.2, MCP.md §8.7). */
+/**
+ * Money is always an integer plus an explicit unit (PRD §8.2, MCP.md §8.7).
+ *
+ * The unit is never implied by context, because there is more than one: a
+ * Claude Code figure is `usd_micro` (derived from tokens and rates) and a
+ * Copilot figure is `aiu_nano` (measured and reported by Copilot itself).
+ * **No conversion between them exists**, so an agent must not add or divide
+ * two amounts without checking that their units match.
+ */
 export interface Money {
   amount: number;
-  unit: "usd_micro";
+  unit: Unit;
   formatted: string;
 }
 
-export function toMoney(micro: number): Money {
-  return { amount: micro, unit: "usd_micro", formatted: formatMicroUsd(micro) };
+export function toMoney(amount: number, unit: Unit = "usd_micro"): Money {
+  return { amount, unit, formatted: formatMoney({ amount, unit }) };
 }
 
-/** A cost can be null — unknown model or unknown pricing modifier — and that must survive into the envelope rather than becoming $0. */
-export function toMoneyOrNull(micro: number | null): Money | null {
-  return micro === null ? null : toMoney(micro);
+/** A cost can be null — unknown model, unknown pricing modifier, or a source that reported none — and that must survive into the envelope rather than becoming $0. */
+export function toMoneyOrNull(amount: number | null, unit: Unit = "usd_micro"): Money | null {
+  return amount === null ? null : toMoney(amount, unit);
 }
 
 /**

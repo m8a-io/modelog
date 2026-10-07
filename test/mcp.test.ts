@@ -207,7 +207,8 @@ test("the full stack answers with real figures over stdio", { skip: !existsSync(
       assert.equal(env.data.turns, 9, "the fixture's nine turns, through the whole stack");
       assert.equal(env.data.sessions, 3);
       assert.equal(env.data.sidechainTurns, 2);
-      assert.equal(env.data.totalCost.unit, "usd_micro");
+      assert.equal(env.data.costBySource[0].source, "claude-code");
+      assert.equal(env.data.costBySource[0].totalCost.unit, "usd_micro");
       assert.equal(env.data.unpricedTurns, 2);
 
       const markers = await client.request("tools/call", {

@@ -183,3 +183,68 @@ export function formatMicroUsd(micro: number): string {
   if (usd < 1000) return `$${usd.toFixed(2)}`;
   return `$${usd.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
+
+/**
+ * The closed set of units a monetary amount can be denominated in (PRD §8.2).
+ *
+ * Each is chosen so every value its source publishes is an exact integer:
+ * `usd_micro` holds every rate on Anthropic's card, `aiu_nano` holds Copilot's
+ * `copilotUsageNanoAiu` exactly as reported.
+ */
+export type Unit = "usd_micro" | "aiu_nano";
+
+export interface Money {
+  amount: number;
+  unit: Unit;
+}
+
+/** Nano-AIU per credit. Copilot's card prices per 1M tokens in credits. */
+export const AIU_NANO = 1_000_000_000;
+
+/**
+ * There is deliberately **no function anywhere in this codebase that converts
+ * between `usd_micro` and `aiu_nano`**, and none should be added.
+ *
+ * The 1 AIU = 1 cent equivalence is *derived* — it was established by matching
+ * two vendors' rate cards, not measured — so a converted figure would be an
+ * artefact presented as a measurement. Its absence is also what makes PRD
+ * §4.5's ban on cross-vendor cost ratios structural rather than a policy
+ * someone has to remember: there is no way to get two sources' money into the
+ * same unit, so there is no way to divide one by the other.
+ */
+
+/**
+ * Cost of one turn in whichever unit its source denominates, or null when the
+ * cost is not knowable.
+ *
+ * Two different mechanisms behind one signature:
+ * - Claude Code reports no cost, so it is **derived** from tokens and rates,
+ *   and is null when the model or a recorded modifier is unrecognised.
+ * - Copilot **measures** its own cost per request, so it is used as reported,
+ *   and is null only when the source did not report one.
+ */
+export function turnCost(turn: Turn, table: RateTable): Money | null {
+  if (turn.source === "copilot") {
+    return turn.costNanoAiu === null ? null : { amount: turn.costNanoAiu, unit: "aiu_nano" };
+  }
+  const micro = turnCostMicro(turn, table);
+  return micro === null ? null : { amount: micro, unit: "usd_micro" };
+}
+
+/**
+ * Format a monetary amount for display, in its own unit.
+ *
+ * Copilot figures render as credits and are never shown as dollars. That is
+ * both the honest rendering — credits are what Copilot actually bills — and a
+ * second structural barrier to a cross-vendor comparison, since two figures in
+ * visibly different units do not invite division the way two dollar figures do.
+ */
+export function formatMoney(money: Money): string {
+  if (money.unit === "usd_micro") return formatMicroUsd(money.amount);
+
+  const credits = money.amount / AIU_NANO;
+  if (credits === 0) return "0 credits";
+  if (credits < 0.01) return "<0.01 credits";
+  if (credits < 1000) return `${credits.toFixed(2)} credits`;
+  return `${credits.toLocaleString("en-US", { maximumFractionDigits: 0 })} credits`;
+}

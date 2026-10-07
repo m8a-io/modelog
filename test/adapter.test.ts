@@ -8,6 +8,9 @@ import { claudeCodeAdapter } from "../src/ingest/claudeCode.ts";
 import type { SourceAdapter } from "../src/ingest/adapter.ts";
 import type { Turn, FileCursor, ParseResult } from "../src/ingest/types.ts";
 import type { Store } from "../src/store/index.ts";
+import { partitionBySource, unitOf, totals, modelRows } from "../src/metrics/aggregate.ts";
+import { RATE_TABLE } from "../src/mcp/rates.ts";
+import { turn as fixtureTurn } from "./fixture.ts";
 
 function tmpDir(): string {
   return mkdtempSync(join(tmpdir(), "modelog-adapter-"));
@@ -139,4 +142,41 @@ test("the Claude Code adapter still finds .jsonl recursively, and nothing else",
 test("the Claude Code adapter declares itself as a tailing source", () => {
   assert.equal(claudeCodeAdapter.source, "claude-code");
   assert.equal(claudeCodeAdapter.mode, "tail");
+});
+
+// --- source partitioning (PRD §4.5, §8.2) -----------------------------------
+
+test("partitionBySource splits turns by the assistant that produced them", () => {
+  const turns = [
+    fixtureTurn({ uuid: "a", source: "claude-code" }),
+    fixtureTurn({ uuid: "b", source: "copilot", costNanoAiu: 1 }),
+    fixtureTurn({ uuid: "c", source: "claude-code" }),
+  ];
+  const parts = partitionBySource(turns);
+  assert.equal(parts.get("claude-code")!.length, 2);
+  assert.equal(parts.get("copilot")!.length, 1);
+});
+
+test("aggregating a mixed set throws rather than summing two currencies", () => {
+  const turns = [
+    fixtureTurn({ uuid: "a", source: "claude-code" }),
+    fixtureTurn({ uuid: "b", source: "copilot", costNanoAiu: 1 }),
+  ];
+  // The failure mode this prevents is silent: without it, dollars and credits
+  // would be added into a number denominated in nothing.
+  assert.throws(() => totals(turns, RATE_TABLE), /more than one source/);
+  assert.throws(() => modelRows(turns, RATE_TABLE), /more than one source/);
+});
+
+test("an empty set has no unit to be wrong about", () => {
+  assert.equal(unitOf([]), "usd_micro");
+  assert.equal(totals([], RATE_TABLE).totalCost, 0);
+});
+
+test("each partition reports the unit its own source bills in", () => {
+  assert.equal(totals([fixtureTurn({ uuid: "a", source: "claude-code" })], RATE_TABLE).unit, "usd_micro");
+  assert.equal(
+    totals([fixtureTurn({ uuid: "b", source: "copilot", costNanoAiu: 5 })], RATE_TABLE).unit,
+    "aiu_nano",
+  );
 });

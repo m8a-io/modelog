@@ -59,21 +59,34 @@ test("summary totals the range, and counts calls apart from turns", () => {
 
 test("summary money is an integer plus a unit, never a bare number", () => {
   const env = unwrap(getSummary(ctx(), {}));
-  assert.equal(env.data.totalCost.unit, "usd_micro");
-  assert.ok(Number.isInteger(env.data.totalCost.amount));
-  assert.match(env.data.totalCost.formatted, /^\$|^<\$/);
-  assert.equal(typeof env.data.totalCost.amount, "number");
+  const cc = env.data.costBySource.find((x: { source: string }) => x.source === "claude-code")!;
+  assert.equal(cc.totalCost.unit, "usd_micro");
+  assert.ok(Number.isInteger(cc.totalCost.amount));
+  assert.match(cc.totalCost.formatted, /^\$|^<\$/);
+  assert.equal(typeof cc.totalCost.amount, "number");
+});
+
+test("cost is reported per source, never as one blended total", () => {
+  // Always an array, even with a single source present — the same shape
+  // compare_models uses, so a second source cannot change the contract.
+  const env = unwrap(getSummary(ctx(), {}));
+  assert.ok(Array.isArray(env.data.costBySource));
+  assert.equal(env.data.costBySource.length, 1);
+  assert.equal(env.data.costBySource[0]!.source, "claude-code");
+  assert.equal(Object.hasOwn(env.data, "totalCost"), false,
+    "a single blended total would be denominated in nothing once a second source exists");
 });
 
 test("cost per turn divides by priced turns only, not by all turns", () => {
   // 2 of 9 turns are unpriced. Dividing by 9 would understate the average.
   const env = unwrap(getSummary(ctx(), {}));
+  const cc = env.data.costBySource.find((x: { source: string }) => x.source === "claude-code")!;
   assert.equal(env.data.unpricedTurns, 2);
-  assert.equal(env.data.costPerTurn.amount, Math.round(env.data.totalCost.amount / 7));
+  assert.equal(cc.costPerTurn.amount, Math.round(cc.totalCost.amount / 7));
 });
 
 test("summary names both causes of an unavailable cost", () => {
-  const c = unwrap(getSummary(ctx(), {})).data.unpricedCauses;
+  const c = unwrap(getSummary(ctx(), {})).data.costBySource[0]!.unpricedCauses;
   assert.equal(c.unknownModelTurns, 1);
   assert.equal(c.unknownModifierTurns, 1);
 });
@@ -83,7 +96,9 @@ test("a range with no turns reports zeros with null bounds, not an error", () =>
   const env = unwrap(getSummary(ctx(), { from: "2020-01-01T00:00:00Z", to: "2020-02-01T00:00:00Z" }));
   assert.equal(env.status, "ok");
   assert.equal(env.data.turns, 0);
-  assert.equal(env.data.costPerTurn, null, "no priced turns means no average, not zero");
+  // No source is represented, so there is no cost row to report. An entry
+  // reading $0 would assert something about a source with no turns in range.
+  assert.deepEqual(env.data.costBySource, []);
   assert.equal(env.data.firstTurn, null);
 });
 
