@@ -12,6 +12,11 @@ export interface StoreResult {
   warning?: string;
 }
 
+/** Where the sqlite store lives under a given storage directory — the one join the MCP server's registration must also use, so the two paths cannot drift. */
+export function dbPath(storageDir: string): string {
+  return join(storageDir, "modelog.db");
+}
+
 /**
  * Feature-detect at activation (DESIGN.md §7). `node:sqlite` needed a flag on
  * Node 22 and is unflagged only from 23.4, so an older Electron host will not
@@ -22,7 +27,7 @@ export async function createStore(storageDir: string): Promise<StoreResult> {
 
   const sqlite = await loadSqlite();
   if (sqlite) {
-    return { store: new SqliteStore(sqlite, join(storageDir, "modelog.db")) };
+    return { store: new SqliteStore(sqlite, dbPath(storageDir)) };
   }
   return {
     store: new FileStore(join(storageDir, "modelog.json")),

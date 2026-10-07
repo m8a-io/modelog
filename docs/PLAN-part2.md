@@ -4,7 +4,7 @@
 
 **Spec:** `MCP.md` for the server, **`docs/INSTALL-ux.md` §2 for this phase**. Read INSTALL-ux first: registration is two targets with two different mechanisms, and only one of them writes a file. This document is sequencing and session context, not requirements — where it and the spec disagree, the spec wins.
 
-**Phase 2 is complete and Phase 4 has run.** Everything below §2.0 is the record of how, kept because the findings constrain Phase 3. Skip to [Phase 3](#phase-3--registration) to start work.
+**Phase 3 is complete and fully verified as of 2026-10-07** — both code and the two live-session checks (known unknowns #5 and #8) are done. Everything below is the record of how, kept because the findings constrain whatever comes next. **Next up is not in this document yet**: marketplace publish-readiness and the Copilot adapter, both scoped only as a 2026-10-07 note under "Explicitly not this session" — read that note before picking a next task.
 
 ---
 
@@ -69,7 +69,7 @@ rather than `ok` until step 1 is done; pass a path to use a different store.
 | Issue [#4](https://github.com/m8a-io/modelog/issues/4) — range clipping reported as session fact | **Fixed** (`4a85d70`) |
 | Issue [#7](https://github.com/m8a-io/modelog/issues/7) — uncaptured fields read as empty | **Fixed** (`508b0de`, `53a3fb9`) |
 | Issues [#5](https://github.com/m8a-io/modelog/issues/5), [#6](https://github.com/m8a-io/modelog/issues/6) — token counts, dispersion | **Open.** Both are Phase 4 output, neither blocks Phase 3 |
-| Phase 3 — registration | **Next.** Read `docs/INSTALL-ux.md` first — it is two targets, not one |
+| Phase 3 — registration | **Done and verified 2026-10-07** |
 
 **What exists to build on:**
 
@@ -273,11 +273,23 @@ Three decisions worth knowing:
 
 Covered in "Before you start". Record whether an unapproved `.mcp.json` entry prompts for approval at session start and what the prompt says, then revert the probe entry. If Claude Code already prompts, **match its wording and shape rather than inventing a different confirmation** — `MCP.md` §7.3 requires showing the exact JSON and target file, and an existing precedent is worth more than a nicer dialog. If it does not prompt, Modelog's own confirmation becomes the only gate and matters more.
 
+#### 3.0 — Answered 2026-10-07
+
+**No approval prompt.** `probe` was added to `.mcp.json` beside `modelog`, then a brand-new Claude Code **chat session** was started in the same window, same `modelog` workspace — the already-running conversation did not need to be closed, since what matters is the chat session's own start, not the VS Code window's. The new session showed no prompt at all, just an empty composer. `/mcp` confirmed both `modelog` and `probe` listed as connected, with no approval step for either.
+
+**Phase 3 consequence, resolved.** There is no existing precedent to match — a project-scoped `.mcp.json` entry connects silently in this client. So Modelog's own confirmation dialog for Target B (already built in 3.4, showing the exact JSON and file before writing) is the **only** gate a user gets before `~/.claude.json` is touched — no implementation change needed, 3.4 was already built this way, but this settles the open question 3.4 had left unresolved.
+
+**Target A also confirmed working live** (known unknown #8): pressing F5 and checking the MCP servers view in the Extension Development Host showed Modelog registered and connected.
+
+The `probe` entry has been reverted out of `.mcp.json`.
+
 #### 3.1 Establish the `engines.vscode` floor — do before writing Target A
 
 Known unknown #6. `registerMcpServerDefinitionProvider` and `contributes.mcpServerDefinitionProviders` have an introduction version; the manifest's `^1.90.0` predates them. Find the real floor from the API docs or the `@types/vscode` changelog, then raise `engines.vscode` to it in the same commit as Target A — not before, or the extension declares a requirement it does not yet use.
 
 Worth knowing what raising it costs: it is the minimum VS Code a user must run to install Modelog at all, including for Part 1's dashboard. If the floor turns out to be recent, say so in the PRD rather than absorbing it silently.
+
+**Answered 2026-10-07: `1.101.0` (May 2025).** Both `registerMcpServerDefinitionProvider` and `contributes.mcpServerDefinitionProviders` were proposed API from roughly March 2025 (tracking issue [microsoft/vscode#243522](https://github.com/microsoft/vscode/issues/243522)) and finalized to stable in the May 2025 milestone, closed by [microsoft/vscode#248244](https://github.com/microsoft/vscode/pull/248244) ("finalize MCP server definition provider API"). Confirmed directly against the current `microsoft/vscode` repo: both live in stable `vscode.d.ts`, not in a `vscode.proposed.*.d.ts` file. Release notes: [code.visualstudio.com/updates/v1_101](https://code.visualstudio.com/updates/v1_101). This **raises the floor for the whole extension**, including Part 1's dashboard, from `^1.90.0` (2024-05) to `^1.101.0` (2025-05) — about a year's worth of VS Code releases become unsupported. Worth a PRD line, not absorbed silently. To apply in the same commit as 3.2.
 
 #### 3.2 Target A — the provider API
 
@@ -292,6 +304,18 @@ This is also the first code in `src/` that imports `vscode` outside `extension.t
 
 Write `mcp-server.mjs` there on activation when the content hash differs. Both targets point at that path rather than at `dist/`, so a developer running from source and a user running from the marketplace get the same registration shape. Hash-compare rather than always writing, so an unchanged bundle is not rewritten on every activation.
 
+#### 3.2 + 3.3 — Done 2026-10-07
+
+`src/mcp/deploy.ts` (`ensureBundleDeployed`, pure, hash-compared, no `vscode` import — unit tested) ships the bundle into `globalStorageUri`; `src/mcp/registration.ts` (`mcpServerEnv`, also pure) builds the `MODELOG_DB`/`MODELOG_BILLING_MODE` env shared by both targets, reusing a new `dbPath()` export from `store/index.ts` so the store and the MCP registration cannot disagree on where the sqlite file lives. `extension.ts` keeps the actual `vscode.lm.registerMcpServerDefinitionProvider` call and `McpStdioServerDefinition` construction — the only `vscode`-importing code for this feature, per the architecture table's "`extension.ts` is the only place with real VS Code wiring." 6 new tests, suite now 170/170.
+
+Three decisions:
+
+- **Registered unconditionally on activation, no command, no confirmation prompt.** Re-derived from MCP.md §7.3 and §2's non-goals: C2 ("opt-in, explicit") and the confirm/back-up/write flow are both scoped to Target B, because only Target B writes to a config file Modelog does not own. Target A writes nothing outside Modelog's own storage, so there is nothing to confirm or back up — same reasoning task 3.2 itself gives for why it's "the easier target."
+- **`McpStdioServerDefinition`'s `version` parameter is the bundle's content hash**, not the extension's package version. The type exists so VS Code knows to refresh a server's tools when it changes; pinning it to the package version would miss same-version rebuilds during development, and the hash is already computed for the deploy step at no extra cost.
+- **`billingMode: "auto"` is translated to "no override" (`undefined`), not forwarded as the literal string `"auto"`.** `server.ts#resolveBilling` already treats an absent `MODELOG_BILLING_MODE` as "detect" — forwarding `"auto"` as a value would require the server to special-case a third string meaning the same thing as unset.
+
+**Caveat, not yet verified:** whether the `WebFetch`-summarized extension-guide code sample's constructor shape (`new vscode.McpStdioServerDefinition({ label, command, ... })`, object literal) was simply wrong, or a newer convenience overload exists. The actual `@types/vscode@1.138.0` d.ts only declares the positional constructor `(label, command, args?, env?, version?)`, which is what the code above uses and which compiles and typechecks. Not re-verified against the live docs page directly — worth a second look if a future `@types/vscode` bump ever breaks this call.
+
 #### 3.4 Target B — the Claude Code config writer
 
 `Modelog: Enable MCP Server`: check `node` on `PATH` (still load-bearing — see 2.0 answer 4), show the exact JSON and the exact target file, confirm, back up, write. `Modelog: Disable` removes only the `modelog` entry and leaves every other server untouched. A Copy Configuration command covers every other client.
@@ -299,6 +323,28 @@ Write `mcp-server.mjs` there on activation when the content hash differs. Both t
 **The copy must not claim success.** Task 2.0 settled that Claude Code reads MCP config at session start only, so after writing, the command says the server appears in the user's *next* session. Do not write a "connected" affirmation and do not poll for it to appear — it will not.
 
 Order within this task matters: write the backup-and-restore path and its test before the writer. The worst available outcome here is a half-written `~/.claude.json`.
+
+#### 3.4 — Done 2026-10-07
+
+Backup-and-restore path written and tested first, as instructed: `src/mcp/claudeConfig.ts` (pure merge over the parsed config — `withModelogServer`, `withoutModelogServer`, `hasModelogServer`) and `src/mcp/claudeConfigFile.ts` (the I/O: `readClaudeConfig` distinguishes `missing` from `invalid-json` so the two get different, specific error copy; `backupAndWriteClaudeConfig` always copies to `<path>.bak` — overwritten each call, not timestamped — before writing). `src/mcp/nodeOnPath.ts` checks `node` resolves before anything is written (MCP.md §7.2). 14 tests against a config shaped after the real `~/.claude.json` on the dev machine — confirmed directly to carry `oauthAccount` and `primaryApiKey` at the same top level as `projects`, which is why every merge function spreads rather than reconstructs.
+
+`extension.ts` wires three commands — `modelog.enableMcpServer`, `modelog.disableMcpServer`, `modelog.copyMcpConfiguration` — following MCP.md §7.3's flow exactly: verify `node`, deploy the bundle, read-and-validate the config, show the exact JSON and exact path in a modal confirmation, back up, write, then report success **without** claiming the server is connected (task 2.0's constraint, repeated in the success copy itself: "appears next time you start a Claude Code session here").
+
+Three decisions:
+
+- **`withModelogServer` returns `null` — and the command aborts — if the current folder is not already a `projects` key in `~/.claude.json`.** Claude Code's own project objects carry fields (`hasTrustDialogAccepted`, `allowedTools`, ...) Modelog has no basis for setting; inventing a project entry risks writing one Claude Code did not create. The command tells the user to open a Claude Code session in the folder first.
+- **The backup is a single rolling `<path>.bak`, overwritten on every write, not timestamped.** It only needs to hold "the state right before Modelog's last write" to be useful for undoing Modelog's own change; timestamped backups would accumulate in `$HOME` indefinitely for a file nothing else rotates.
+- **`isNodeOnPath` checks this process's own environment, not Claude Code's.** They are not guaranteed identical, but task 2.0's answer 4 found the client spawns via its own binary's inherited `PATH`, which on this machine matched the extension host's — the closest available proxy, not a guarantee.
+
+#### 3.5 — Done 2026-10-07
+
+Added as a fourth command, `modelog.mcpServerStatus`, rather than new dashboard UI — the webview would need a new protocol message and host-side aggregation for two lines of text, and `panel.ts`'s "the webview computes nothing" rule means that's not actually smaller than a command. Reports Target A and Target B on separate lines, never merged into one boolean, per the task's requirement. Target A has no VS Code API to query actual connection state (only `provide`/`resolve` hooks exist on the provider interface), so its line says "registered with VS Code," not "connected" — an honest narrower claim, consistent with task 2.0's constraint on Target B's copy.
+
+**Not independently tested** — it is a thin read-only composition of already-tested functions (`deployMcpBundle`, `readClaudeConfig`, `hasModelogServer`) with no new logic of its own.
+
+---
+
+**Phase 3 is complete and verified as of 2026-10-07.** All of 3.0–3.5 are done, including the two live-session checks (3.0's approval-prompt question, and Target A actually appearing in a real VS Code session) — both confirmed directly by the maintainer. 184 tests, 0 failures (up from 164 at session start).
 
 #### 3.5 Make the two targets' disagreement visible
 
@@ -339,13 +385,16 @@ Method: the session that ran the test had already read this plan, so it was disq
 | ~~2~~ | ~~Will the agent call `get_definitions` before reasoning?~~ | **Settled 2026-10-04: yes.** Two cold agents, both called it second, before any query tool. Which lever caused it is not isolated — see the Phase 4 record. |
 | ~~3~~ | ~~How much agent context does a `list_sessions` response consume?~~ | **Measured 2026-10-04: 2.6 kB at the 50-session default (~650 tokens).** Not a concern. `get_definitions` is the largest response at 6.3 kB, and it is called once. See `MCP.md` §11 Q3. |
 | 4 | Is `node` reliably on `PATH` for VS Code-launched processes? | **Partly settled 2026-09-28: it resolved here, to nvm's node, via the extension binary's inherited `PATH` — but for a machine-specific reason. Not generalisable; keep the Phase 3 check.** See 2.0 Answers. |
-| 5 | Does adding an unapproved server to `.mcp.json` prompt for approval, and what does the prompt say? | **Task 3.0 — do it first.** Needs one fresh session with an unapproved entry present at launch; see "Before you start". Affects `MCP.md` §7.3 only |
-| 6 | What is the real `engines.vscode` floor for `registerMcpServerDefinitionProvider`? | Task 3.1. The manifest currently says `^1.90.0`, which is certainly too low. Blocks Target A |
+| ~~5~~ | ~~Does adding an unapproved server to `.mcp.json` prompt for approval, and what does the prompt say?~~ | **Settled 2026-10-07: no prompt.** A project-scoped `.mcp.json` entry connects silently — `/mcp` showed it connected with no approval step. See 3.0 Answered. Modelog's own confirmation dialog (3.4) is therefore the only gate before `~/.claude.json` is touched |
+| ~~6~~ | ~~What is the real `engines.vscode` floor for `registerMcpServerDefinitionProvider`?~~ | **Settled 2026-10-07: `1.101.0`.** See 3.1 Answered. `engines.vscode` raised accordingly |
 | 7 | Are tool *descriptions* reliably in context when a client picks a tool? | Raised by Phase 4: in a deferred-tool session they are not until searched for. Decides how much weight `instructions` has to carry versus `DEFINITIONS_DESCRIPTION` |
+| ~~8~~ | ~~Does Target A (the VS Code provider) actually appear as a connected MCP server in a real VS Code window, with real tools listed?~~ | **Settled 2026-10-07: yes.** Confirmed live via F5 and the Extension Development Host's MCP servers view. See 3.0 Answered |
 
 ## Explicitly not this session
 
 Ollama, session labeling, work-log generation, the Copilot adapter, the `{amount, unit}` refactor beyond the envelope, anything in Part 3. Also not Phase 0.1's session history table.
+
+**2026-10-07 scoping note.** The stated longer-term goal is a published extension with both Claude Code and Copilot available for analysis. That is at least three separate chunks of work, not one session: (1) Phase 3 here, (2) marketplace publish-readiness — no `icon` in `package.json`, no `CHANGELOG.md`, no verified `vsce package`/publish flow; there is no PRD phase number for this yet, it is adjacent to but not the same as §7.15 Install & First-Run UX, and (3) the Copilot adapter (PRD §7.1), which is blocked on an undecided product question — open question 15, whether/how to ask users to enable `github.copilot.chat.agentDebugLog.fileLogging`, which is in tension with the §8.1 no-prompt-content trust claim. Decided to do (1) only this session; (2) and (3) need their own sessions, and (3) needs the open question settled before any code.
 
 Issues **#5** (token counts) and **#6** (dispersion) are Phase 4 output and both change the tool surface. They do not belong in a registration phase — finish Phase 3, then take them together, since #6 reads better once #5's counts exist.
 

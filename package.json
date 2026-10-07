@@ -15,7 +15,7 @@
   "publisher": "modelog",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.90.0",
+    "vscode": "^1.101.0",
     "node": ">=24"
   },
   "categories": [
@@ -26,6 +26,12 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "modelog.mcp",
+        "label": "Modelog"
+      }
+    ],
     "commands": [
       {
         "command": "modelog.openDashboard",
@@ -38,6 +44,22 @@
       {
         "command": "modelog.exportData",
         "title": "Modelog: Export Data"
+      },
+      {
+        "command": "modelog.enableMcpServer",
+        "title": "Modelog: Enable MCP Server (Claude Code)"
+      },
+      {
+        "command": "modelog.disableMcpServer",
+        "title": "Modelog: Disable MCP Server (Claude Code)"
+      },
+      {
+        "command": "modelog.copyMcpConfiguration",
+        "title": "Modelog: Copy MCP Server Configuration"
+      },
+      {
+        "command": "modelog.mcpServerStatus",
+        "title": "Modelog: MCP Server Status"
       }
     ],
     "configuration": {
