@@ -1,5 +1,8 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { Turn, Diagnostic, ParseResult } from "./types.ts";
 import { CAPTURE_VERSION } from "./capture.ts";
+import type { SourceAdapter } from "./adapter.ts";
 
 /**
  * Claude Code source adapter.
@@ -13,6 +16,29 @@ import { CAPTURE_VERSION } from "./capture.ts";
 
 /** Locally generated records that are not API calls. Must never be counted. */
 const SYNTHETIC_MODEL = "<synthetic>";
+
+/** Every `.jsonl` under `root`, recursively — Claude Code writes nothing else there. */
+function findJsonl(dir: string, out: string[] = []): string[] {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) findJsonl(p, out);
+    else if (e.isFile() && e.name.endsWith(".jsonl")) out.push(p);
+  }
+  return out;
+}
+
+export const claudeCodeAdapter: SourceAdapter = {
+  source: "claude-code",
+  mode: "tail",
+  findFiles: (root) => findJsonl(root),
+  parse: (text, file, startLine) => parseChunk(text, file, startLine),
+};
 
 export function parseChunk(text: string, file: string, startLine = 0): ParseResult {
   const turns: Turn[] = [];
