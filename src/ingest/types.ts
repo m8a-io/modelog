@@ -5,6 +5,22 @@
  * adapter, not touching anything downstream.
  */
 
+import type { TurnSource } from "./adapter.ts";
+
+export type { TurnSource };
+
+/**
+ * How a turn's token classes were determined.
+ *
+ * - `reported` — the source stated every class outright (Claude Code).
+ * - `solved` — the cache-write count was not reported and was recovered by
+ *   solving the source's own billing equation (Copilot; PRD §7.1 Correction 4).
+ * - `unknown` — the solve was degenerate or inexact, so the split between
+ *   plain input and cache writes is **not known**. Such a turn is excluded
+ *   from cache statistics but keeps its cost, which is measured independently.
+ */
+export type TokenBreakdown = "reported" | "solved" | "unknown";
+
 export interface Turn {
   /** Source record uuid. Primary key — makes re-ingest idempotent. */
   uuid: string;
@@ -12,6 +28,13 @@ export interface Turn {
   /** Epoch milliseconds. */
   ts: number;
   model: string;
+
+  /**
+   * Which assistant produced this turn. Load-bearing: the two sources do not
+   * share a cost unit, so anything that sums or compares money must partition
+   * on this first (PRD §4.5, §8.2).
+   */
+  source: TurnSource;
 
   /** Token counts, kept as four separately-priced classes (DESIGN.md §9). */
   inputTokens: number;
@@ -54,6 +77,29 @@ export interface Turn {
 
   /** Which fields this row was ingested with; see `capture.ts`. */
   captureVersion: number;
+
+  /**
+   * Cost as the source itself measured it, in nano-AIU (Copilot's own unit —
+   * `copilotUsageNanoAiu`). Null for a source that does not report a cost, in
+   * which case cost is derived from tokens and rates instead.
+   *
+   * Deliberately NOT converted to micro-dollars on ingest: 1 AIU = 1 cent is a
+   * derived equivalence, not a measurement, and baking a derivation into
+   * stored data is the same error class as pricing an unknown model at a
+   * default rate (PRD §8.2).
+   */
+  costNanoAiu: number | null;
+
+  /**
+   * How this row's token classes were established. Null on rows ingested
+   * before the field existed.
+   *
+   * Not folded into `capture.ts`: that mechanism is version-indexed — "did
+   * this build of Modelog look at this field" — whereas this varies per row
+   * with the data itself, so a "captured since version N" answer would be
+   * meaningless here.
+   */
+  tokenBreakdown: TokenBreakdown | null;
 
   cwd: string | null;
   gitBranch: string | null;

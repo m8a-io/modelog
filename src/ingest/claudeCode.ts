@@ -160,6 +160,11 @@ function toTurn(
     entrypoint: typeof rec.entrypoint === "string" ? rec.entrypoint : null,
     isSidechain: rec.isSidechain === true,
     captureVersion: CAPTURE_VERSION,
+    source: "claude-code",
+    // Claude Code reports every token class outright and reports no cost, so
+    // cost is derived from tokens and rates downstream.
+    costNanoAiu: null,
+    tokenBreakdown: "reported",
     cwd: typeof rec.cwd === "string" ? rec.cwd : null,
     gitBranch: typeof rec.gitBranch === "string" ? rec.gitBranch : null,
     sourceFile: file,

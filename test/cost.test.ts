@@ -14,6 +14,7 @@ function turn(p: Partial<Turn>): Turn {
     cacheWrite1hTokens: 0, outputTokens: 0, thinkingTokens: 0,
     iterations: 1, entrypoint: "claude-vscode", isSidechain: false, captureVersion: 2,
     speed: null, inferenceGeo: null,
+    source: "claude-code", costNanoAiu: null, tokenBreakdown: "reported",
     cwd: null, gitBranch: null, sourceFile: "f",
     ...p,
   };

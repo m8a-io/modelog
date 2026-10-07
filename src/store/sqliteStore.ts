@@ -42,12 +42,15 @@ CREATE TABLE IF NOT EXISTS turns (
   capture_version       INTEGER NOT NULL DEFAULT 1,
   speed                 TEXT,
   inference_geo         TEXT,
+  source                TEXT    NOT NULL DEFAULT 'claude-code',
+  cost_nano_aiu         INTEGER,
+  token_breakdown       TEXT,
   cwd                   TEXT,
   git_branch            TEXT,
   source_file           TEXT    NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_turns_ts    ON turns(ts);
-CREATE INDEX IF NOT EXISTS idx_turns_model ON turns(model);
+CREATE INDEX IF NOT EXISTS idx_turns_ts     ON turns(ts);
+CREATE INDEX IF NOT EXISTS idx_turns_model  ON turns(model);
 
 CREATE TABLE IF NOT EXISTS cursors (
   path        TEXT PRIMARY KEY,
@@ -79,6 +82,18 @@ const ADDED_COLUMNS: ReadonlyArray<{ column: string; ddl: string }> = [
     column: "capture_version",
     ddl: "ALTER TABLE turns ADD COLUMN capture_version INTEGER NOT NULL DEFAULT 1",
   },
+  // Unlike is_sidechain above, this default is a fact rather than a guess:
+  // Claude Code is the only adapter that has ever written to this store, so
+  // every pre-existing row genuinely is a Claude Code turn. No capture-version
+  // treatment is needed and none should be added.
+  {
+    column: "source",
+    ddl: "ALTER TABLE turns ADD COLUMN source TEXT NOT NULL DEFAULT 'claude-code'",
+  },
+  // Null on every existing row and on every Claude Code row ever: a measured
+  // cost exists only where the source reports one.
+  { column: "cost_nano_aiu", ddl: "ALTER TABLE turns ADD COLUMN cost_nano_aiu INTEGER" },
+  { column: "token_breakdown", ddl: "ALTER TABLE turns ADD COLUMN token_breakdown TEXT" },
 ];
 
 /**
@@ -96,6 +111,12 @@ export function migrate(db: any): string[] {
     db.exec(ddl);
     added.push(column);
   }
+
+  // Indexes on migrated columns are created here rather than in SCHEMA,
+  // because SCHEMA runs before this function: on an existing database its
+  // CREATE TABLE is a no-op, so an index naming a not-yet-ALTERed column
+  // fails outright. Ordering is columns first, then indexes.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_turns_source ON turns(source)");
 
   // Rows that already existed carry the column default, not real data. The
   // scanner skips any file whose size and mtime are unchanged, so it would
@@ -131,8 +152,9 @@ export class SqliteStore implements Store {
         (uuid, session_id, ts, model, input_tokens, cache_read_tokens,
          cache_write_5m_tokens, cache_write_1h_tokens, output_tokens,
          thinking_tokens, iterations, entrypoint, is_sidechain, capture_version,
-         speed, inference_geo, cwd, git_branch, source_file)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         speed, inference_geo, source, cost_nano_aiu, token_breakdown,
+         cwd, git_branch, source_file)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
     this.db.exec("BEGIN");
     try {
@@ -141,7 +163,8 @@ export class SqliteStore implements Store {
           t.uuid, t.sessionId, t.ts, t.model, t.inputTokens, t.cacheReadTokens,
           t.cacheWrite5mTokens, t.cacheWrite1hTokens, t.outputTokens,
           t.thinkingTokens, t.iterations, t.entrypoint, t.isSidechain ? 1 : 0,
-          t.captureVersion, t.speed, t.inferenceGeo, t.cwd, t.gitBranch, t.sourceFile,
+          t.captureVersion, t.speed, t.inferenceGeo, t.source, t.costNanoAiu,
+          t.tokenBreakdown, t.cwd, t.gitBranch, t.sourceFile,
         );
       }
       this.db.exec("COMMIT");
@@ -205,6 +228,9 @@ function rowToTurn(r: any): Turn {
     captureVersion: r.capture_version,
     speed: r.speed ?? null,
     inferenceGeo: r.inference_geo ?? null,
+    source: r.source ?? "claude-code",
+    costNanoAiu: r.cost_nano_aiu ?? null,
+    tokenBreakdown: r.token_breakdown ?? null,
     cwd: r.cwd,
     gitBranch: r.git_branch,
     sourceFile: r.source_file,

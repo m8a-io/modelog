@@ -37,6 +37,7 @@ function turn(p: Partial<Turn> = {}): Turn {
     cacheWrite1hTokens: 4, outputTokens: 5, thinkingTokens: 6,
     iterations: 1, entrypoint: "claude-vscode", isSidechain: false, captureVersion: 2,
     speed: "standard", inferenceGeo: "not_available",
+    source: "claude-code", costNanoAiu: null, tokenBreakdown: "reported",
     cwd: "/w", gitBranch: "main", sourceFile: "f.jsonl",
     ...p,
   };
@@ -120,7 +121,10 @@ test("an existing pre-migration database gains the columns", { skip: !sqlite }, 
 
     assert.deepEqual(
       [...store.migratedColumns].sort(),
-      ["capture_version", "entrypoint", "inference_geo", "is_sidechain", "speed"],
+      [
+        "capture_version", "cost_nano_aiu", "entrypoint", "inference_geo",
+        "is_sidechain", "source", "speed", "token_breakdown",
+      ],
     );
 
     // The pre-existing row is readable, with the new fields as gaps.
@@ -133,6 +137,14 @@ test("an existing pre-migration database gains the columns", { skip: !sqlite }, 
     // from a recorded value we do not recognise, which prices as null.
     assert.equal(rows[0]!.speed, null);
     assert.equal(rows[0]!.inferenceGeo, null);
+    // Unlike isSidechain, this default is a fact: Claude Code is the only
+    // adapter that has ever written to this store, so a pre-existing row IS
+    // a Claude Code turn and needs no capture-version caveat.
+    assert.equal(rows[0]!.source, "claude-code");
+    // No measured cost, and token classes the source reported outright.
+    assert.equal(rows[0]!.costNanoAiu, null);
+    assert.equal(rows[0]!.tokenBreakdown, null);
+
     // The false above is a default, not an observation; the row says so.
     assert.equal(rows[0]!.captureVersion, 1);
     assert.deepEqual(uncapturedFields(rows[0]!), ["entrypoint", "inferenceGeo", "isSidechain", "speed"]);
@@ -166,6 +178,47 @@ test("migrating is idempotent and records the schema version", { skip: !sqlite }
     assert.equal(db.prepare("PRAGMA user_version").get().user_version, SCHEMA_VERSION);
     assert.deepEqual(migrate(db), []);
     db.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("a Copilot turn round-trips its measured cost and breakdown", { skip: !sqlite }, () => {
+  const t = tmp();
+  try {
+    const store = new SqliteStore(sqlite, t.path);
+    store.upsertTurns([
+      turn({
+        uuid: "cop1",
+        source: "copilot",
+        costNanoAiu: 6_171_550_000,
+        tokenBreakdown: "solved",
+        speed: null,
+        inferenceGeo: null,
+      }),
+    ]);
+    const [row] = store.allTurns();
+    assert.equal(row!.source, "copilot");
+    assert.equal(row!.costNanoAiu, 6_171_550_000);
+    assert.equal(row!.tokenBreakdown, "solved");
+    store.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("a turn whose cache-write split could not be solved says so, rather than reading as zero", { skip: !sqlite }, () => {
+  const t = tmp();
+  try {
+    const store = new SqliteStore(sqlite, t.path);
+    store.upsertTurns([
+      turn({ uuid: "deg", source: "copilot", costNanoAiu: 0, tokenBreakdown: "unknown" }),
+    ]);
+    const [row] = store.allTurns();
+    assert.equal(row!.tokenBreakdown, "unknown");
+    // The cost is still known — it was measured, not derived from the split.
+    assert.equal(row!.costNanoAiu, 0);
+    store.close();
   } finally {
     t.cleanup();
   }
