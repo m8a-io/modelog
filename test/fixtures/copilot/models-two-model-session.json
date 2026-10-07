@@ -1,0 +1,33 @@
+[
+  {
+    "id": "claude-sonnet-5",
+    "vendor": "Anthropic",
+    "billing": {
+      "token_prices": {
+        "default": {
+          "cache_read_price": 20,
+          "cache_write_1h_price": 400,
+          "cache_write_price": 250,
+          "input_price": 200,
+          "max_prompt_tokens": 200000,
+          "output_price": 1000
+        }
+      }
+    }
+  },
+  {
+    "id": "gpt-5.6-terra",
+    "vendor": "OpenAI",
+    "billing": {
+      "token_prices": {
+        "default": {
+          "cache_read_price": 20,
+          "cache_write_price": 250,
+          "input_price": 200,
+          "max_prompt_tokens": 272000,
+          "output_price": 1200
+        }
+      }
+    }
+  }
+]
