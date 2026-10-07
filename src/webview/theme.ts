@@ -58,6 +58,17 @@ export function readTheme(): ChartTheme {
 }
 
 /**
+ * Resolve a VS Code colour variable the host selected by name.
+ *
+ * The host assigns a palette slot per model and sends the variable name, so
+ * that colour follows the model rather than its position in whatever subset
+ * the current filter produced. The webview's job is only to look it up.
+ */
+export function resolveColorVar(name: string, fallback: string): string {
+  return v(name, fallback);
+}
+
+/**
  * Calls back whenever VS Code swaps the theme. VS Code rewrites the body
  * class and data-vscode-theme-id, so observing those attributes is enough.
  */

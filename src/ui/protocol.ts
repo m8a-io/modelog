@@ -14,6 +14,7 @@ export type HostMessage = { type: "state"; state: ViewState };
 export type WebviewMessage =
   | { type: "ready" }
   | { type: "setRange"; days: number | null }
+  | { type: "setSource"; source: string }
   | { type: "rescan" };
 
 export interface ModelRowView {
@@ -39,11 +40,22 @@ export interface ChartSeries {
   model: string;
   /** A VS Code theme variable name, e.g. "--vscode-charts-blue". */
   colorVar: string;
-  /** Cost per turn in micro-dollars; null where the model was unused that day. */
+  /**
+   * Cost per turn, already scaled to the display unit (dollars, or credits)
+   * because the webview computes nothing. Null where the model was unused
+   * that day — a gap, not a fall to zero.
+   */
   values: Array<number | null>;
+  /** Turns per day, parallel to `values`. Drawn as the stacked bar panel. */
   turns: number[];
-  /** Pre-formatted for the tooltip, parallel to `values`. */
+  /** Pre-formatted cost for the tooltip, parallel to `values`. */
   labels: Array<string | null>;
+}
+
+/** One panel's vertical scale, with its ticks already formatted. */
+export interface ChartAxis {
+  max: number;
+  ticks: Array<{ value: number; label: string }>;
 }
 
 export interface ChartData {
@@ -52,8 +64,15 @@ export interface ChartData {
   dayLabels: string[];
   series: ChartSeries[];
   switches: Array<{ dayIndex: number; label: string }>;
-  yMaxMicro: number;
-  yTicks: Array<{ value: number; label: string }>;
+  /**
+   * Two panels, never two scales on one panel: cost per turn and turn counts
+   * are different measures, and overlaying them on a shared y-axis is the
+   * single most common way a chart misleads. They share the x-axis instead.
+   */
+  cost: ChartAxis;
+  turns: ChartAxis;
+  /** Heading for the cost panel, naming its unit, e.g. "Cost per turn ($)". */
+  costLabel: string;
 }
 
 export interface BillingView {
@@ -64,7 +83,23 @@ export interface BillingView {
   detected: boolean;
 }
 
+/** One ingested assistant, for the source switcher. */
+export interface SourceView {
+  id: string;
+  label: string;
+  turns: number;
+}
+
 export interface ViewState {
+  /**
+   * Every source with data, and which one this state describes.
+   *
+   * The dashboard shows exactly one source at a time. Its figures are in that
+   * source's own unit, and there is no combined view, because a dollar total
+   * and a credit total cannot be added or placed on one axis (PRD §4.5).
+   */
+  sources: SourceView[];
+  activeSource: string;
   billing: BillingView;
   backend: string;
   rangeLabel: string;

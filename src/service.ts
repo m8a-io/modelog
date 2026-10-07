@@ -4,7 +4,14 @@ import { createStore, type Store } from "./store/index.ts";
 import { scan } from "./ingest/scanner.ts";
 import { claudeCodeAdapter } from "./ingest/claudeCode.ts";
 import { copilotAdapter } from "./ingest/copilot.ts";
-import { buildRateTable, formatMicroUsd, type RateTable, type PricingFile } from "./metrics/cost.ts";
+import {
+  buildRateTable,
+  formatMoney,
+  AIU_NANO,
+  type RateTable,
+  type PricingFile,
+  type Unit,
+} from "./metrics/cost.ts";
 import {
   modelRows,
   totals,
@@ -14,11 +21,26 @@ import {
   dayKey,
   partitionBySource,
 } from "./metrics/aggregate.ts";
-import type { ViewState, ModelRowView, ChartData } from "./ui/protocol.ts";
-import { detectBilling, billingCopy, type BillingInfo } from "./ingest/billing.ts";
-import type { Turn } from "./ingest/types.ts";
+import type { ViewState, ModelRowView, ChartData, SourceView, ChartAxis } from "./ui/protocol.ts";
+import {
+  detectBilling,
+  billingCopy,
+  copilotBillingCopy,
+  type BillingInfo,
+} from "./ingest/billing.ts";
+import type { Turn, TurnSource } from "./ingest/types.ts";
 
 const DAY_MS = 86_400_000;
+const MICRO = 1_000_000;
+
+/** Display names for the sources. An unknown id falls back to the id itself. */
+/** The folded "Other" bucket. Deliberately not a series hue — it is an absence of identity, not a seventh one. */
+const OVERFLOW_COLOR = "--vscode-descriptionForeground";
+
+const SOURCE_LABELS: Record<string, string> = {
+  "claude-code": "Claude Code",
+  copilot: "GitHub Copilot",
+};
 
 /**
  * VS Code's themed categorical palette. Six distinguishable series is the
@@ -117,67 +139,107 @@ export class ModelogService {
   }
 
   /**
-   * The Claude Code turns only.
+   * The sources present in the store, most-used first.
    *
-   * The dashboard and status bar render one money unit end to end, so they
-   * show one source. Copilot's figures are credits and must never be drawn on
-   * a dollar axis or summed into a dollar total (PRD §4.5, §8.2); presenting
-   * both properly is a design question, not plumbing, and is deferred. Until
-   * then Copilot data is reachable through the MCP tools, and its absence
-   * here is reported rather than left silent — see `sourceGapWarnings`.
+   * The dashboard shows one at a time rather than merging them. That is not a
+   * simplification: a dollar total and a credit total cannot be summed or put
+   * on one axis (PRD §4.5), so a combined view would have to either invent a
+   * conversion or show a number denominated in nothing.
    */
-  private claudeCodeTurns(turns: readonly Turn[]): Turn[] {
-    return partitionBySource(turns).get("claude-code") ?? [];
+  private sourceViews(): SourceView[] {
+    const parts = partitionBySource(this.store.allTurns());
+    return [...parts.entries()]
+      .map(([id, list]) => ({ id, label: SOURCE_LABELS[id] ?? id, turns: list.length }))
+      .sort((a, b) => b.turns - a.turns || a.id.localeCompare(b.id));
   }
 
-  /** Says so when a source exists in the store but is not on this surface. */
-  private sourceGapWarnings(turns: readonly Turn[]): string[] {
-    const copilot = partitionBySource(turns).get("copilot") ?? [];
-    if (copilot.length === 0) return [];
-    return [
-      `${copilot.length} Copilot turn(s) in range are not shown here. Copilot bills in ` +
-        `credits, which cannot share an axis or a total with dollars, so this view is ` +
-        `Claude Code only. Copilot figures are available through the MCP tools.`,
-    ];
+  /**
+   * Colour per model, assigned from a stable ordering over the WHOLE store
+   * rather than over the filtered range.
+   *
+   * Two rules this exists to keep. Colour follows the model, not its rank, so
+   * narrowing the date range cannot repaint the models that survive. And hues
+   * are never cycled: past the palette's six distinguishable series the
+   * remainder folds into one "Other" bucket, because a seventh model drawn in
+   * a repeated colour is worse than one drawn as "other".
+   */
+  private modelColors(): Map<string, string> {
+    const byModel = new Map<string, number>();
+    for (const t of this.store.allTurns()) {
+      byModel.set(t.model, (byModel.get(t.model) ?? 0) + 1);
+    }
+    const ordered = [...byModel.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([model]) => model);
+
+    const out = new Map<string, string>();
+    ordered.forEach((model, i) => {
+      if (i < SERIES_COLORS.length) out.set(model, SERIES_COLORS[i]!);
+    });
+    return out;
   }
 
+  /**
+   * One line, so one source: the most-used one. Its unit is shown rather than
+   * converted, so a credits figure reads as credits and is never mistaken for
+   * dollars — which is also why there is no combined figure here.
+   */
   statusText(): string {
     const now = Date.now();
-    const turns = this.claudeCodeTurns(this.store.allTurns());
+    const primary = (this.sourceViews()[0]?.id ?? "claude-code") as TurnSource;
+    const turns = partitionBySource(this.store.allTurns()).get(primary) ?? [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayCost = totals(filterByRange(turns, today.getTime(), now), this.table).totalCost;
-    const monthCost = totals(filterByRange(turns, now - 30 * DAY_MS, now), this.table).totalCost;
-    return `$(pulse) ${formatMicroUsd(todayCost)} · ${formatMicroUsd(monthCost)}/30d`;
+    const todayTot = totals(filterByRange(turns, today.getTime(), now), this.table);
+    const monthTot = totals(filterByRange(turns, now - 30 * DAY_MS, now), this.table);
+    const fmt = (t: { totalCost: number; unit: Unit }) =>
+      formatMoney({ amount: t.totalCost, unit: t.unit });
+    return `$(pulse) ${fmt(todayTot)} · ${fmt(monthTot)}/30d`;
   }
 
-  viewState(rangeDays: number | null): ViewState {
+  /**
+   * The dashboard for ONE source.
+   *
+   * `source` selects which; an unknown or absent one falls back to the
+   * most-used source present. Every figure in the returned state is in that
+   * source's own unit, which is what makes a single-unit chart axis and a
+   * single-unit total honest.
+   */
+  viewState(rangeDays: number | null, source?: string): ViewState {
     const now = Date.now();
     const from = rangeDays === null ? 0 : now - rangeDays * DAY_MS;
+    const sources = this.sourceViews();
+    const active: TurnSource =
+      source && sources.some((s) => s.id === source)
+        ? (source as TurnSource)
+        : ((sources[0]?.id ?? "claude-code") as TurnSource);
+
     const inRange = filterByRange(this.store.allTurns(), from, now);
-    const turns = this.claudeCodeTurns(inRange);
+    const turns: readonly Turn[] = partitionBySource(inRange).get(active) ?? [];
 
     const tot = totals(turns, this.table);
     const rows = modelRows(turns, this.table);
     const cheapest = rows.find((r) => r.costPerTurn !== null)?.costPerTurn ?? null;
+    const money = (amount: number) => formatMoney({ amount, unit: tot.unit });
 
     const viewRows: ModelRowView[] = rows.map((r) => ({
       model: r.model,
       turns: r.turns,
       sessions: r.sessions,
-      costPerTurn: r.costPerTurn === null ? "unavailable" : formatMicroUsd(r.costPerTurn),
-      // The relative column leads over absolute dollars (PRD §8.2).
+      costPerTurn: r.costPerTurn === null ? "unavailable" : money(r.costPerTurn),
+      // The relative column leads over absolute money (PRD §8.2). It is a
+      // ratio within one source, so it stays dimensionless and comparable.
       relative:
         r.costPerTurn === null || cheapest === null || cheapest === 0
           ? "—"
           : `${(r.costPerTurn / cheapest).toFixed(2)}x`,
       turnsPerSession: r.turnsPerSession.toFixed(1),
       cacheHitRate: `${(r.cacheHitRate * 100).toFixed(1)}%`,
-      total: formatMicroUsd(r.totalCost),
+      total: money(r.totalCost),
       unpricedTurns: r.unpricedTurns,
     }));
 
-    const chart = this.buildChart(turns);
+    const chart = this.buildChart(turns, tot.unit);
 
     const switches = developerModelSwitches(turns).map((s) => ({
       when: new Date(s.ts).toLocaleString(),
@@ -185,32 +247,69 @@ export class ModelogService {
       intraSession: s.intraSession,
     }));
 
+    // Billing copy belongs to the source being shown: Copilot's figures are
+    // measured credits against an allowance Modelog cannot see, which is a
+    // different claim from Claude Code's derived dollars.
+    const billing =
+      active === "copilot"
+        ? { ...copilotBillingCopy(), detected: true }
+        : { ...billingCopy(this.billing), detected: this.billing.detected };
+
     return {
-      billing: { ...billingCopy(this.billing), detected: this.billing.detected },
+      sources,
+      activeSource: active,
+      billing,
       backend: this.store.backend,
       rangeLabel: rangeDays === null ? "All time" : `Last ${rangeDays} days`,
       empty: tot.turns === 0,
       totals: {
         turns: tot.turns,
         sessions: tot.sessions,
-        total: formatMicroUsd(tot.totalCost),
+        total: money(tot.totalCost),
         unpricedTurns: tot.unpricedTurns,
       },
       rows: viewRows,
       chart,
       switches,
-      warnings: [...this.warnings, ...this.sourceGapWarnings(inRange)],
+      warnings: [...this.warnings],
     };
   }
 
-  private buildChart(turns: readonly Turn[]): ChartData {
+  private buildChart(turns: readonly Turn[], unit: Unit): ChartData {
     const { days, series } = dailySeries(turns, this.table);
+    const colors = this.modelColors();
 
-    let max = 0;
-    for (const s of series) {
-      for (const v of s.values) if (v !== null && v > max) max = v;
+    // Models past the palette fold into one bucket rather than repeating a
+    // hue. Their turns still count; only their identity is merged.
+    const named = series.filter((s) => colors.has(s.model));
+    const overflow = series.filter((s) => !colors.has(s.model));
+    const folded = overflow.length
+      ? [
+          {
+            model: `Other (${overflow.length} models)`,
+            // Cost per turn cannot be averaged across models meaningfully, so
+            // the folded bucket contributes turns only and draws no cost line.
+            values: days.map(() => null as number | null),
+            turns: days.map((_, i) => overflow.reduce((n, s) => n + (s.turns[i] ?? 0), 0)),
+          },
+        ]
+      : [];
+
+    const scale = unit === "aiu_nano" ? AIU_NANO : MICRO;
+    const display = (amount: number) => amount / scale;
+
+    let costMax = 0;
+    for (const s of named) {
+      for (const v of s.values) if (v !== null && v > costMax) costMax = v;
     }
-    const yMax = niceCeiling(max);
+    let turnsMax = 0;
+    for (let i = 0; i < days.length; i++) {
+      const total = series.reduce((n, s) => n + (s.turns[i] ?? 0), 0);
+      if (total > turnsMax) turnsMax = total;
+    }
+
+    const costCeiling = niceCeiling(display(costMax));
+    const turnCeiling = turnsCeiling(turnsMax);
 
     const dayIndex = new Map(days.map((d, i) => [d, i]));
     // Chart markers use the developer's switches for the same reason the list
@@ -223,16 +322,17 @@ export class ModelogService {
     return {
       days,
       dayLabels: days.map(shortDay),
-      series: series.map((s, i) => ({
+      series: [...named, ...folded].map((s) => ({
         model: s.model,
-        colorVar: SERIES_COLORS[i % SERIES_COLORS.length]!,
-        values: s.values,
+        colorVar: colors.get(s.model) ?? OVERFLOW_COLOR,
+        values: s.values.map((v) => (v === null ? null : display(v))),
         turns: s.turns,
-        labels: s.values.map((v) => (v === null ? null : formatMicroUsd(v))),
+        labels: s.values.map((v) => (v === null ? null : formatMoney({ amount: v, unit }))),
       })),
       switches,
-      yMaxMicro: yMax,
-      yTicks: ticksFor(yMax),
+      cost: axisFor(costCeiling, (v) => formatMoney({ amount: Math.round(v * scale), unit })),
+      turns: axisFor(turnCeiling, (v) => String(Math.round(v))),
+      costLabel: unit === "aiu_nano" ? "Cost per turn (credits)" : "Cost per turn ($)",
     };
   }
 
@@ -256,23 +356,36 @@ export class ModelogService {
 
 
 /** Round a max value up to a readable axis ceiling. */
+/**
+ * A round number at or above `v`.
+ *
+ * Deliberately NOT rounded to an integer: a cost-per-turn axis is routinely
+ * well under a dollar, and rounding 0.002 to 0 would collapse the scale to
+ * nothing. Callers that need whole numbers (a turn count) round themselves.
+ */
 function niceCeiling(v: number): number {
   if (v <= 0) return 1;
   const mag = 10 ** Math.floor(Math.log10(v));
   for (const step of [1, 2, 2.5, 5, 10]) {
     const candidate = step * mag;
-    if (candidate >= v) return Math.round(candidate);
+    if (candidate >= v) return candidate;
   }
-  return Math.round(10 * mag);
+  return 10 * mag;
 }
 
-function ticksFor(yMax: number): Array<{ value: number; label: string }> {
-  const out = [];
+/** A turn-count ceiling divisible by four, so all five ticks are whole turns. */
+function turnsCeiling(v: number): number {
+  return Math.max(4, Math.ceil(niceCeiling(v) / 4) * 4);
+}
+
+/** Five evenly spaced ticks with labels formatted host-side, since the webview computes nothing. */
+function axisFor(max: number, label: (v: number) => string): ChartAxis {
+  const ticks = [];
   for (let i = 0; i <= 4; i++) {
-    const value = Math.round((yMax / 4) * i);
-    out.push({ value, label: formatMicroUsd(value) });
+    const value = (max / 4) * i;
+    ticks.push({ value, label: label(value) });
   }
-  return out;
+  return { max, ticks };
 }
 
 function shortDay(iso: string): string {

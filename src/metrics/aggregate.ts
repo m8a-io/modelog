@@ -381,26 +381,32 @@ export function dailySeries(turns: readonly Turn[], table: RateTable): DailySeri
   }
   const dayIndex = new Map(days.map((d, i) => [d, i]));
 
-  // model -> day index -> running { cost, turns }
-  const acc = new Map<string, Array<{ cost: number; turns: number }>>();
+  // model -> day index -> running { cost, turns, priced }
+  //
+  // `turns` counts every turn, including unpriced ones, because it is a
+  // volume figure in its own right — it drives the turns-per-day bars, and a
+  // model with no rate still did the work. `priced` is the divisor for the
+  // cost average, so an unpriced turn cannot drag that average down.
+  const acc = new Map<string, Array<{ cost: number; turns: number; priced: number }>>();
   for (const t of turns) {
     const i = dayIndex.get(dayKey(t.ts));
     if (i === undefined) continue;
     let row = acc.get(t.model);
     if (!row) {
-      row = days.map(() => ({ cost: 0, turns: 0 }));
+      row = days.map(() => ({ cost: 0, turns: 0, priced: 0 }));
       acc.set(t.model, row);
     }
-    const c = turnCost(t, table);
-    if (c === null) continue; // unpriced turns cannot enter a cost series
-    row[i]!.cost += c.amount;
     row[i]!.turns += 1;
+    const c = turnCost(t, table);
+    if (c === null) continue; // an unpriced turn has no cost to average in
+    row[i]!.cost += c.amount;
+    row[i]!.priced += 1;
   }
 
   const series = [...acc.entries()]
     .map(([model, row]) => ({
       model,
-      values: row.map((cell) => (cell.turns > 0 ? Math.round(cell.cost / cell.turns) : null)),
+      values: row.map((cell) => (cell.priced > 0 ? Math.round(cell.cost / cell.priced) : null)),
       turns: row.map((cell) => cell.turns),
     }))
     .sort((a, b) => a.model.localeCompare(b.model));

@@ -24,28 +24,29 @@ const RANGES: Array<[string, number | null]> = [
   ["All", null],
 ];
 let activeRange: number | null = 30;
+let activeSource = "";
 /** The live chart, disposed before each re-render so ECharts frees its DOM. */
 let chart: ChartHandle | undefined;
 
 function render(state: ViewState): void {
   chart?.dispose();
   chart = undefined;
+  activeSource = state.activeSource;
   app.replaceChildren();
   app.append(header(state));
+  if (state.sources.length > 1) app.append(sourceTabs(state));
 
   for (const w of state.warnings) app.append(banner(w, "warn"));
 
   if (state.empty) {
-    app.append(
-      el("p", "No sessions found yet. Modelog reads ~/.claude/projects.", "muted"),
-    );
+    app.append(el("p", `No ${sourceLabel(state)} sessions in this range.`, "muted"));
     return;
   }
 
   app.append(summary(state));
 
   if (state.chart.days.length > 1) {
-    app.append(el("h2", "Cost per turn"));
+    app.append(el("h2", "Cost and turns per day"));
     const host = el("div", "", "chart");
     app.append(host);
     // ECharts measures its container, so it must be in the DOM first.
@@ -61,6 +62,37 @@ function render(state: ViewState): void {
     app.append(el("h2", `Model switches (${state.switches.length})`));
     app.append(switchList(state));
   }
+}
+
+/**
+ * One tab per ingested assistant.
+ *
+ * Shown only when more than one has data: with a single source the control
+ * would be a permanent no-op. Each tab is a whole dashboard in that source's
+ * own unit rather than a filter over a combined one, because a dollar total
+ * and a credit total cannot be summed or share an axis.
+ */
+function sourceTabs(state: ViewState): HTMLElement {
+  const wrap = el("div", "", "sources");
+  wrap.setAttribute("role", "tablist");
+  for (const s of state.sources) {
+    const on = s.id === state.activeSource;
+    const b = el("button", "", on ? "source active" : "source");
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(on));
+    b.append(el("span", s.label, "source-label"), el("span", String(s.turns), "source-count"));
+    b.addEventListener("click", () => {
+      if (s.id === activeSource) return;
+      activeSource = s.id;
+      vscode.postMessage({ type: "setSource", source: s.id });
+    });
+    wrap.append(b);
+  }
+  return wrap;
+}
+
+function sourceLabel(state: ViewState): string {
+  return state.sources.find((s) => s.id === state.activeSource)?.label ?? "assistant";
 }
 
 function header(state: ViewState): HTMLElement {

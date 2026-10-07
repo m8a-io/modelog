@@ -38,6 +38,8 @@ export class DashboardPanel {
   private readonly context: vscode.ExtensionContext;
   private readonly service: ModelogService;
   private rangeDays: number | null = 30;
+  /** Which assistant's dashboard is showing. Undefined lets the service pick the most-used. */
+  private source: string | undefined;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -67,6 +69,10 @@ export class DashboardPanel {
         this.rangeDays = msg.days;
         this.refresh();
         return;
+      case "setSource":
+        this.source = msg.source;
+        this.refresh();
+        return;
       case "rescan":
         this.service.rescan();
         this.refresh();
@@ -75,7 +81,10 @@ export class DashboardPanel {
   }
 
   refresh(): void {
-    this.post({ type: "state", state: this.service.viewState(this.rangeDays) });
+    this.post({
+      type: "state",
+      state: this.service.viewState(this.rangeDays, this.source),
+    });
   }
 
   private post(msg: HostMessage): void {
