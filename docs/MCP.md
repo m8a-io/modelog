@@ -157,6 +157,10 @@ Prose in the response is **declarative, never imperative** (§4.2): it states wh
 
 `{ days? | from?, to? }` → totals over the range: turns, sessions, total cost in micro-dollars *and* formatted, unpriced turn count, cache hit rate, date bounds.
 
+> **Revised 2026-10-07: there is no single total cost.** Once a store can hold two sources, one blended total would be denominated in nothing. The response carries **`costBySource[]`** — always an array, even with one source present, matching how §8.3 always nests under a group — with each entry carrying its own `totalCost`, `costPerTurn`, `unpricedTurns` and `unpricedCauses` in that source's unit.
+>
+> The unit-free figures — `turns`, `sessions`, `inferenceCalls`, `sidechainTurns`, `cacheHitRate`, and the date bounds — **do** span sources, because a count across two assistants is a real quantity in a way a sum of dollars and credits is not.
+
 ### 8.3 `modelog_compare_models`
 
 `{ days? | from?, to? }` → one row per model: turns, sessions, cost per turn, relative multiple against the cheapest, turns per session, cache hit rate, total, unpriced count.
@@ -164,6 +168,8 @@ Prose in the response is **declarative, never imperative** (§4.2): it states wh
 Costs appear only within a single vendor's data. If the store ever holds multiple vendors, rows are grouped by vendor and no cross-vendor ratio is emitted (PRD §4.5).
 
 **Implemented as shape, not policy (2026-10-04).** Rows are nested under a `vendors[]` group *always*, even for a single vendor, and `relativeToCheapest` is computed against a baseline taken inside one group. Invariant 5 therefore cannot be violated by a handler forgetting it — there is no cross-group baseline to divide by. A note fires only when more than one vendor is actually present.
+
+> **Corrected 2026-10-07: grouping is source first, vendor second.** Grouping on vendor alone had a hole that only opened once a second source existed, and it was the exact comparison §4.5 forbids: the same model id reaches a developer through both assistants, so a Copilot `claude-sonnet-5` and a Claude Code `claude-sonnet-5` landed in one group and were divided against each other — two different billing relationships, in two different units. Each group now carries its `source` and the `unit` its figures are in. §4.5's own words are the justification: the surviving distinction is the billing relationship, not whose weights ran.
 
 ### 8.4 `modelog_list_sessions`
 
@@ -205,6 +211,10 @@ Every tool returns a common envelope:
 **Money is returned as `{ amount, unit, formatted }`** — an integer for arithmetic, an explicit unit, and a formatted string for display, so an agent never parses currency text and can never add two units together. *Revised 2026-09-27:* this said "integer micro-dollars" before PRD §8.2 was restated. The unit is named rather than implied because a second unit already exists in a source Modelog will ingest (Copilot reports nano-AIU), and because a cross-unit rate is an inference, not a measurement.
 
 **A cost of `null` has two causes** — an unrecognised model, or an unrecognised pricing modifier (`speed`, `inference_geo`). `notes` must say which applies; "unpriced turns" alone is no longer a sufficient explanation.
+
+> **Implemented 2026-10-07, with the second unit now real.** `Unit` is `"usd_micro" | "aiu_nano"`, and **no function converting between them exists anywhere in the codebase** — a test asserts none appears. That absence is what makes §4.5's ban on cross-vendor cost comparison structural rather than a rule someone has to remember: with no path to a common unit, the ratio is not expressible. Copilot amounts are formatted as credits and never as dollars, so two figures are not even visually comparable.
+>
+> A third cause of a `null` cost now exists: **a source that reports no cost for a turn.** Copilot's cost is measured per request rather than derived, so a Copilot turn missing `copilotUsageNanoAiu` is unpriced for a reason that has nothing to do with the rate table.
 
 ---
 

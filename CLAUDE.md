@@ -83,7 +83,7 @@ Press <kbd>F5</kbd> with `modelog` as the workspace root. A second window opens 
 src/
   extension.ts      activate() — the only place with real VS Code wiring
   service.ts        ModelogService — owns store, rates, ingest. NO vscode import.
-  ingest/           adapters, scanner (byte-offset tailing), watcher, billing detect
+  ingest/           adapters (claudeCode, copilot), scanner, watcher, billing detect
   metrics/          cost.ts (integer engine), aggregate.ts (pure)
   store/            Store interface; sqliteStore (node:sqlite) + fileStore fallback
   ui/               panel.ts (webview host), protocol.ts (shared message contract)
@@ -92,6 +92,7 @@ src/
 
 **Layering rules that keep the tests useful:**
 
+- **Two sources, two money units.** `Turn.source` is `claude-code` or `copilot`. Their costs are in different units (`usd_micro` vs `aiu_nano`) and **no conversion between them exists** — do not add one. Aggregates refuse a mixed set; call `partitionBySource()` first. This is what makes PRD §4.5's ban on cross-vendor cost comparison structural rather than a rule to remember.
 - `service.ts`, `metrics/`, `ingest/`, and `store/` import **no `vscode`**. That is why they can be exercised headlessly with a plain Node script, and why the cost engine is testable at all. Keep it that way.
 - **The webview computes nothing.** The host sends a finished, pre-formatted view model; the webview renders. All aggregation stays host-side.
 - `ui/protocol.ts` is imported by **both** processes, so a message-shape change breaks the build rather than the runtime.
