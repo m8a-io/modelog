@@ -362,6 +362,22 @@ Requirements live in a dedicated document (`docs/MCP.md`). Binding constraints:
 
 Once labels exist, category becomes a filter and segment dimension on every Part 1 metric — "cost per turn on bug fixes, Model A vs Model B" — which is the actual answer to §1's third gap.
 
+#### 7.18 Effectiveness ratings (candidate — not scoped)
+
+**Numbered out of sequence to avoid renumbering §7.11–§7.14, same as §7.15's note.**
+
+Raised 2026-10-08, directly from a live MCP demo: asked whether switching to Opus was "actually worth it," the agent answered correctly and honestly that the logs show usage and cost, never answer quality — it could not settle whether the work was actually better, only how much it cost. That answer is right, and it's also the exact gap §1 names as unaddressed by any existing tool: Modelog measures everything *except* the one thing a developer actually judged a switch by.
+
+**The idea:** a lightweight, explicit rating the developer attaches to a recent stretch of work — e.g. a Claude Code slash command, `/effectiveness 8` — logged against the turns it covers, so cost-per-turn and turns/session can eventually be read alongside *"and here's how it felt, over time, not just once."*
+
+This is a genuinely different kind of data from anything Modelog stores today, and not a small addition. Three open questions before it could be scoped at all:
+
+1. **It breaks the MCP read-only invariant.** §7.9 states "read-only in v1" deliberately — a write tool is a first for this product, asserted against by a named test (`no tool is a write tool`). A rating-write tool needs its own safety design: idempotency, undo, what happens if a client calls it unprompted.
+2. **"Which turns" has no natural definition.** Claude Code has no native concept of "the 8 turns I just did with Opus." Last N turns? Everything since the last rating? Everything in the current session? Getting this wrong misattributes a rating to turns it wasn't actually about.
+3. **Number-only, or a note too?** A bare 1–10 score stays clearly outside §8.1's content boundary. A free-text justification ("nailed the refactor in one shot") would be the first time anything resembling prompt-adjacent content enters the store, and needs its own explicit reasoning, not an assumption it's fine because the rest of the field is numeric.
+
+The §6 Marker model already has a slot for exactly this: `provenance: "user"`, "a manual annotation," sitting alongside `observed` and `inferred` since the original data model was written — though in code today `provenance` is narrowed to the literal `"observed"` (`src/mcp/tools.ts`), so widening it is itself part of the work, not just reusing an existing type. The taxonomy isn't the gap — the write path and the turn-window definition are. Whatever ships must still keep a `user`-provenance rating visibly opinion, never blended into the honest/measured figures (§8.2) as if it were one of them.
+
 ### Part 3 — Enterprise & Web
 
 **Goal:** team-level value and the commercial surface. All opt-in and telemetry questions are deferred to here.
@@ -529,6 +545,7 @@ Every optional dependency (Ollama, a given assistant's logs, network) defaults c
 | 9 | AI Insights is a live, actively developed competitor covering the commodity layer. Differentiation must be visible in the first release, not promised. | All |
 | 10 | ~~Cache-tier pricing needs a sourced, versioned rate table.~~ **Resolved: `data/pricing.json`** (§8.2). | Closed |
 | 11 | Three distinct models appear across local sessions, so the model-switch anchor is viable on real data — but sessions may mix models mid-session. Anchor logic must handle intra-session switches. | Part 1 |
+| 24 | **Should Modelog let the developer rate a stretch of work's effectiveness** (e.g. `/effectiveness 8`), so cost can eventually be read alongside a subjective quality signal? Raised 2026-10-08 — see §7.18. Needs: a write tool (breaks the §7.9 read-only invariant), a definition of "which turns" a rating covers, and a decision on number-only vs. a free-text note (the latter edges toward §8.1's content boundary). | Part 2 — product decision |
 
 ---
 
