@@ -63,7 +63,6 @@ export interface ChartData {
   /** Pre-formatted short labels for the x axis, parallel to `days`. */
   dayLabels: string[];
   series: ChartSeries[];
-  switches: Array<{ dayIndex: number; label: string }>;
   /**
    * Two panels, never two scales on one panel: cost per turn and turn counts
    * are different measures, and overlaying them on a shared y-axis is the

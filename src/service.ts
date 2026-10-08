@@ -18,7 +18,6 @@ import {
   developerModelSwitches,
   filterByRange,
   dailySeries,
-  dayKey,
   partitionBySource,
 } from "./metrics/aggregate.ts";
 import type { ViewState, ModelRowView, ChartData, SourceView, ChartAxis } from "./ui/protocol.ts";
@@ -311,14 +310,6 @@ export class ModelogService {
     const costCeiling = niceCeiling(display(costMax));
     const turnCeiling = turnsCeiling(turnsMax);
 
-    const dayIndex = new Map(days.map((d, i) => [d, i]));
-    // Chart markers use the developer's switches for the same reason the list
-    // does; the cost series above deliberately keeps every turn, including
-    // subagent ones, because that spend is real.
-    const switches = developerModelSwitches(turns)
-      .map((s) => ({ dayIndex: dayIndex.get(dayKey(s.ts)) ?? -1, label: `${s.from} → ${s.to}` }))
-      .filter((s) => s.dayIndex >= 0);
-
     return {
       days,
       dayLabels: days.map(shortDay),
@@ -329,7 +320,6 @@ export class ModelogService {
         turns: s.turns,
         labels: s.values.map((v) => (v === null ? null : formatMoney({ amount: v, unit }))),
       })),
-      switches,
       cost: axisFor(costCeiling, (v) => formatMoney({ amount: Math.round(v * scale), unit })),
       turns: axisFor(turnCeiling, (v) => String(Math.round(v))),
       costLabel: unit === "aiu_nano" ? "Cost per turn (credits)" : "Cost per turn ($)",
@@ -388,7 +378,14 @@ function axisFor(max: number, label: (v: number) => string): ChartAxis {
   return { max, ticks };
 }
 
+/**
+ * Locale-aware, matching the "Model switches" list's `toLocaleString()` — not
+ * a hardcoded month/day order. `iso` is a local calendar-date key (`dayKey`),
+ * so it's parsed into y/m/d and rebuilt with the local-time constructor
+ * rather than `new Date(iso)`, which parses as UTC midnight and can land on
+ * the wrong calendar day once formatted in a locale behind UTC.
+ */
 function shortDay(iso: string): string {
-  const [, m, d] = iso.split("-");
-  return `${m}/${d}`;
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y!, m! - 1, d!).toLocaleDateString(undefined, { month: "2-digit", day: "2-digit" });
 }

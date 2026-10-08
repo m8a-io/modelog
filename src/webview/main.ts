@@ -45,7 +45,7 @@ function render(state: ViewState): void {
 
   app.append(summary(state));
 
-  if (state.chart.days.length > 1) {
+  if (state.chart.days.length > 0) {
     app.append(el("h2", "Cost and turns per day"));
     const host = el("div", "", "chart");
     app.append(host);

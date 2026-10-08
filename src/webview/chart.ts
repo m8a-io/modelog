@@ -4,7 +4,6 @@ import {
   GridComponent,
   TooltipComponent,
   LegendComponent,
-  MarkLineComponent,
   DataZoomComponent,
   AxisPointerComponent,
 } from "echarts/components";
@@ -37,7 +36,6 @@ echarts.use([
   GridComponent,
   TooltipComponent,
   LegendComponent,
-  MarkLineComponent,
   DataZoomComponent,
   AxisPointerComponent,
   SVGRenderer,
@@ -67,15 +65,17 @@ export function renderChart(container: HTMLElement, data: ChartData): ChartHandl
 }
 
 /**
- * Panel geometry, in the 420px container `.chart` reserves.
+ * Panel geometry, in the 448px container `.chart` reserves.
  *
- * Laid out so nothing collides: the cost panel ends at 176, the turns panel
- * runs 204–316 with ~22px of date labels beneath it, the zoom slider sits at
- * 362–376, and the legend has the remaining ~44px to wrap into.
+ * Laid out so nothing collides: the cost panel ends at 176, a deliberate 56px
+ * gap separates it from the turns panel (204px would abut tightly enough to
+ * read as one messy chart rather than two), the turns panel runs 232–344 with
+ * ~22px of date labels beneath it, the zoom slider sits at 390–404, and the
+ * legend has the remaining ~44px to wrap into.
  */
 const COST_TOP = 28;
 const COST_HEIGHT = 148;
-const TURNS_TOP = 204;
+const TURNS_TOP = 232;
 const TURNS_HEIGHT = 112;
 const SLIDER_BOTTOM = 44;
 
@@ -103,26 +103,6 @@ function buildOption(data: ChartData, t: ChartTheme): echarts.EChartsCoreOption 
       lineStyle: { width: 2 },
       itemStyle: { color: colorOf(i) },
       data: s.values,
-      // Model switches are observed anchors, drawn once rather than per model.
-      ...(i === 0 && data.switches.length
-        ? {
-            markLine: {
-              silent: false,
-              symbol: "none",
-              label: {
-                show: true,
-                formatter: (p: { name?: string }) => p.name ?? "",
-                color: t.muted,
-                fontFamily: t.fontFamily,
-                fontSize: 10,
-                rotate: 90,
-                position: "insideEndTop" as const,
-              },
-              lineStyle: { color: t.muted, type: "dashed" as const, width: 1, opacity: 0.8 },
-              data: data.switches.map((sw) => ({ xAxis: sw.dayIndex, name: sw.label })),
-            },
-          }
-        : {}),
     }));
 
   // Turns per model per day, stacked. Absolute height rather than 100%, so a
