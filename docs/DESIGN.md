@@ -18,7 +18,7 @@ modelog/
   src/
     extension.ts        # activate() — the entry point
     ingest/
-      watcher.ts        # filesystem watch on the Claude Code log dir
+      scanner.ts        # walks the log roots; no background watch (§5)
       claudeCode.ts     # source adapter: JSONL -> normalized events
       types.ts          # the internal event model all adapters emit
     store/
@@ -47,7 +47,7 @@ Three concepts do most of the work; the rest of this document assumes them.
 
 **The manifest.** `package.json` is both the npm manifest and the extension manifest. Its `contributes` section *declares* what Modelog adds to the UI — commands, settings, views — as static JSON. VS Code reads this at startup without running any of our code, which is how it can show our command in the palette while the extension is still dormant.
 
-**Activation.** `activationEvents` tells VS Code when to actually load us. Modelog uses `onStartupFinished` — we are a background collector, so we need to run without the user asking, but `onStartupFinished` defers us until the editor has finished its own startup so we never sit on the critical path. Our exported `activate(context)` is then called once. Everything disposable (watchers, panels, the store) gets pushed onto `context.subscriptions` so VS Code tears it down cleanly.
+**Activation.** `activationEvents` tells VS Code when to actually load us. Modelog uses `onStartupFinished` — we are a background collector, so we need to run without the user asking, but `onStartupFinished` defers us until the editor has finished its own startup so we never sit on the critical path. Our exported `activate(context)` is then called once. Everything disposable (panels, the store) gets pushed onto `context.subscriptions` so VS Code tears it down cleanly.
 
 **The extension host.** Our code runs in a separate Node process from the editor UI. There is no DOM. Anything visual is either a built-in UI type (status bar item, tree view, quick pick) or a **webview** — an iframe we hand HTML to, which can only talk to us by message passing. This process boundary is the reason for §8's protocol.
 
@@ -98,9 +98,11 @@ The payoff: Modelog looks native in every theme the user already trusts, includi
 
 ```
 ~/.claude/projects/**/*.jsonl
-        |  fs.watch (debounced)
+        |  scanned on activation, on dashboard open, and on "Modelog: Rescan"
+        |  (no background watcher — DashboardPanel.rescanAndRefresh re-scans
+        |  whenever the dashboard is actually brought in front of someone)
         v
-  watcher.ts  -- byte offset per file, reads only what is new
+  scanner.ts  -- byte offset per file, reads only what is new
         |
         v
   claudeCode.ts  -- parse JSONL -> normalized Turn/Session events
@@ -125,7 +127,7 @@ Metrics are computed on read. The volume is small enough (§11) that precomputat
 
 **Idempotency.** Every record carries a `uuid`. Upserts key on it, so a full rescan is always safe and never double-counts. `modelog.rescan` relies on this.
 
-**Partial lines.** A watch can fire mid-write, leaving a truncated final line. Parse line-by-line; on a JSON error at the *last* line, retain the partial buffer and retry on the next event. A JSON error on any *earlier* line is real corruption — log it, skip that line, count it in a health stat.
+**Partial lines.** A scan can land mid-write, leaving a truncated final line. Parse line-by-line; on a JSON error at the *last* line, retain the partial buffer and retry on the next scan. A JSON error on any *earlier* line is real corruption — log it, skip that line, count it in a health stat.
 
 **What we keep.** Timestamps, model, token counts, session/branch/cwd identifiers, record uuids. **We never read or store `message.content`.** Prompts and code do not enter the store. This is PRD §8.1 and it is easier to guarantee at the parser than anywhere downstream.
 
@@ -255,7 +257,7 @@ Sortable, filterable table: start time, duration, repo/branch, model(s), turns, 
 | Incremental ingest | < 50ms per file change |
 | Dashboard first paint | < 300ms from command |
 | Memory | < 50MB for 100k turns |
-| Watcher | debounced 500ms; never a busy poll |
+| Rescan on dashboard open | fast enough not to be felt — no background polling to budget instead |
 
 ---
 

@@ -3,7 +3,6 @@ import { join, resolve } from "node:path";
 import * as vscode from "vscode";
 import { DashboardPanel } from "./ui/panel.ts";
 import { ModelogService } from "./service.ts";
-import { LogWatcher } from "./ingest/watcher.ts";
 import { ensureBundleDeployed } from "./mcp/deploy.ts";
 import { mcpServerEnv } from "./mcp/registration.ts";
 import {
@@ -17,7 +16,6 @@ import { isNodeOnPath } from "./mcp/nodeOnPath.ts";
 import { findCopilotLogs } from "./ingest/copilot.ts";
 
 let service: ModelogService | undefined;
-let watcher: LogWatcher | undefined;
 
 /**
  * Called once by VS Code on the "onStartupFinished" activation event declared
@@ -81,21 +79,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("modelog.copilotStatus", () => showCopilotStatus(context, cfg)),
   );
 
-  // Live updates: an active session appends to its log constantly, so the
-  // watcher is debounced and only ever triggers an incremental read.
-  watcher = new LogWatcher(() => {
-    service?.rescan();
-    refreshAll();
-  });
-  const failed = watcher.start(cfg().get<string[]>("logPaths", ["~/.claude/projects"]));
-  if (failed.length) {
-    void vscode.window.showWarningMessage(
-      `Modelog: could not watch ${failed.join(", ")}. Use "Modelog: Rescan" to refresh manually.`,
-    );
-  }
-  context.subscriptions.push({ dispose: () => watcher?.dispose() });
-
-  // Ingest after activation returns, so we never sit on the startup path.
+  // No background watcher (DESIGN.md §5): nobody keeps the dashboard open
+  // while they work, so a live tail would mostly run unseen. The status bar
+  // gets one scan at startup; the dashboard re-scans itself every time it is
+  // actually brought in front of someone (DashboardPanel.rescanAndRefresh),
+  // and "Modelog: Rescan" covers everything else.
   setTimeout(() => {
     service?.rescan();
     refreshAll();
@@ -106,20 +94,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 /**
- * Where Copilot's per-workspace debug logs live.
+ * Where Copilot's debug logs live — two roots, not one.
  *
  * **Derived, not guessed.** `globalStorageUri` is
- * `<...>/User/globalStorage/modelog.modelog`, and Copilot's logs are under
- * `<...>/User/workspaceStorage/`, so the root is two levels up from our own
- * storage directory. Because it comes from a path VS Code hands us, it is
- * correct on macOS, Windows, VSCodium, Remote-SSH and dev containers alike —
- * where a `homedir()` plus per-platform table would have to be maintained and
- * would be wrong on the ones nobody tested.
+ * `<...>/User/globalStorage/modelog.modelog`, two levels below `<...>/User`.
+ * Copilot writes a session under `User/workspaceStorage/<hash>/` when a
+ * folder is open, but under `User/globalStorage/` directly when none is —
+ * which is how a Copilot chat with no folder open behaves, the Extension
+ * Development Host included. Missing that second root isn't a rare-platform
+ * edge case; it's the default state of this very development loop. Because
+ * both roots come from a path VS Code hands us, they are correct on macOS,
+ * Windows, VSCodium, Remote-SSH and dev containers alike — where a
+ * `homedir()` plus per-platform table would have to be maintained and would
+ * be wrong on the ones nobody tested.
  *
  * The known gap: a user running two VS Code installs (desktop plus a remote)
- * has two `workspaceStorage` roots and this sees only the one its own
+ * has two such `User` directories and this sees only the one its own
  * extension host lives in. `modelog.copilotLogPaths` covers that case
- * explicitly rather than by sniffing.
+ * explicitly rather than by sniffing — but it replaces this pair outright, so
+ * an override needs to list both of the second install's roots too.
  */
 function copilotLogPaths(
   context: vscode.ExtensionContext,
@@ -130,7 +123,8 @@ function copilotLogPaths(
   const override = cfg().get<string[]>("copilotLogPaths", []);
   if (override.length > 0) return override;
 
-  return [resolve(context.globalStorageUri.fsPath, "..", "..", "workspaceStorage")];
+  const user = resolve(context.globalStorageUri.fsPath, "..", "..");
+  return [join(user, "workspaceStorage"), join(user, "globalStorage")];
 }
 
 /**
@@ -531,8 +525,6 @@ async function showMcpServerStatus(context: vscode.ExtensionContext): Promise<vo
 }
 
 export function deactivate(): void {
-  watcher?.dispose();
-  watcher = undefined;
   service?.dispose();
   service = undefined;
 }

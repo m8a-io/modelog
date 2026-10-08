@@ -83,7 +83,7 @@ Press <kbd>F5</kbd> with `modelog` as the workspace root. A second window opens 
 src/
   extension.ts      activate() — the only place with real VS Code wiring
   service.ts        ModelogService — owns store, rates, ingest. NO vscode import.
-  ingest/           adapters (claudeCode, copilot), scanner, watcher, billing detect
+  ingest/           adapters (claudeCode, copilot), scanner, billing detect
   metrics/          cost.ts (integer engine), aggregate.ts (pure)
   store/            Store interface; sqliteStore (node:sqlite) + fileStore fallback
   ui/               panel.ts (webview host), protocol.ts (shared message contract)

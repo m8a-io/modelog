@@ -249,6 +249,44 @@ test("a root with no Copilot data yields nothing rather than throwing", () => {
   assert.deepEqual(findCopilotLogs(mkdtempSync(join(tmpdir(), "modelog-empty-"))), []);
 });
 
+// --- the no-folder shape: globalStorage, lowercase, no hash level ------------
+
+/**
+ * A folder-less Copilot session — the Extension Development Host's own
+ * default state (CLAUDE.md) — writes here instead of under a workspace hash.
+ * Lowercase and one level shallower than the workspace-bound shape: a prior
+ * version of `findCopilotLogs` that only walked the hash shape missed every
+ * session here, silently, including a real one caught live on this machine.
+ */
+function globalStorageTree(): string {
+  const root = mkdtempSync(join(tmpdir(), "modelog-copilot-global-"));
+  const session = join(root, "github.copilot-chat", "debug-logs", "sess-2");
+  mkdirSync(session, { recursive: true });
+  writeFileSync(join(session, "main.jsonl"), "");
+  writeFileSync(join(session, "models.json"), "[]");
+  return root;
+}
+
+test("a no-folder session under globalStorage is found too", () => {
+  const found = findCopilotLogs(globalStorageTree()).map((p) => p.split("/").pop());
+  assert.deepEqual(found, ["main.jsonl"]);
+});
+
+test("both shapes are found from the same root without one shadowing the other", () => {
+  const root = mkdtempSync(join(tmpdir(), "modelog-copilot-both-"));
+  const workspaceSession = join(root, "abc123", "GitHub.copilot-chat", "debug-logs", "sess-1");
+  mkdirSync(workspaceSession, { recursive: true });
+  writeFileSync(join(workspaceSession, "main.jsonl"), "");
+  const globalSession = join(root, "github.copilot-chat", "debug-logs", "sess-2");
+  mkdirSync(globalSession, { recursive: true });
+  writeFileSync(join(globalSession, "main.jsonl"), "");
+
+  const found = findCopilotLogs(root);
+  assert.equal(found.length, 2);
+  assert.ok(found.some((p) => p.includes("sess-1")));
+  assert.ok(found.some((p) => p.includes("sess-2")));
+});
+
 test("the adapter re-reads whole files, because a turn spans many lines", () => {
   assert.equal(copilotAdapter.source, "copilot");
   assert.equal(copilotAdapter.mode, "whole-file");

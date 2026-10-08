@@ -12,6 +12,10 @@ export class DashboardPanel {
     const column = vscode.window.activeTextEditor?.viewColumn;
     if (DashboardPanel.current) {
       DashboardPanel.current.panel.reveal(column);
+      // Nothing watches the logs between opens (see rescanAndRefresh), so an
+      // already-open panel being brought back to front is itself the signal
+      // to catch up, the same as a fresh "ready" would.
+      DashboardPanel.current.rescanAndRefresh();
       return;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -63,7 +67,7 @@ export class DashboardPanel {
   private onMessage(msg: WebviewMessage): void {
     switch (msg.type) {
       case "ready":
-        this.refresh();
+        this.rescanAndRefresh();
         return;
       case "setRange":
         this.rangeDays = msg.days;
@@ -74,10 +78,20 @@ export class DashboardPanel {
         this.refresh();
         return;
       case "rescan":
-        this.service.rescan();
-        this.refresh();
+        this.rescanAndRefresh();
         return;
     }
+  }
+
+  /**
+   * There is no background watcher (DESIGN.md §5): nobody keeps this panel
+   * open while they work, so a live tail would mostly run unseen. Instead,
+   * every moment the dashboard actually puts itself in front of someone —
+   * first open, reveal, or the explicit Rescan button — re-scans first.
+   */
+  private rescanAndRefresh(): void {
+    this.service.rescan();
+    this.refresh();
   }
 
   refresh(): void {
