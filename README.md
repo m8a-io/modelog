@@ -1,8 +1,11 @@
-# Modelog
+<p align="center">
+  <img src="images/modelog-logo-128x128.png" width="96" height="96" alt="Modelog icon">
+</p>
 
-**Local-first VS Code extension that measures what actually changed when you switched AI models — from your own session logs, never your code.**
+<h1 align="center">Modelog</h1>
+<p align="center"><strong>See exactly what switching AI models costs and changes — measured from your own session logs, never your code.</strong></p>
 
-> **Status: in development.** Part 1 is partially built and runs against real data. Not yet released to the Marketplace.
+> **Status: Beta.** Core local analysis — Claude Code and GitHub Copilot capture, the dashboard, the MCP bridge — works end-to-end against real data. Interfaces and stored data may still change release to release.
 
 ---
 
@@ -18,40 +21,38 @@ Modelog answers that from data already sitting on your disk.
 
 ## What it does
 
-- **Reads your local session logs.** Claude Code today (`~/.claude/projects/**/*.jsonl`), built behind a source-agnostic adapter so other assistants can follow.
+- **Reads your local session logs.** Claude Code (`~/.claude/projects/**/*.jsonl`) and GitHub Copilot (opt-in, its own debug logs), behind a source-agnostic adapter so other assistants can follow.
 - **Prices every turn properly.** Four separately-billed token classes — fresh input, cache read, cache creation, output — with 5-minute and 1-hour cache writes priced apart. In real usage ~95% of input-side tokens are cache reads, so a naive calculation is wrong by orders of magnitude.
 - **Compares models on normalised metrics.** Cost per turn, turns per session, cache hit rate — not raw totals.
 - **Anchors comparisons on real events.** Model switches are detected from the logs, including mid-session, and drawn on the trend chart.
+- **Keeps each assistant in its own unit.** A dollar total (Claude Code) and a credit total (Copilot) are never summed, compared, or placed on the same axis — switch between them with one click instead.
+- **Lets Claude Code query its own usage data.** A local MCP server exposes the same metrics as tools, behind an explicit opt-in — ask your assistant directly instead of reading a chart.
 - **Looks like your editor.** Every colour is a VS Code theme variable, so the UI follows your theme — including live theme switches and high-contrast. Enforced in CI.
+
+## See it in action
+
+![Modelog's per-source dashboard, showing cost and turn volume per model over time](images/modelog-dashboard.gif)
 
 ## Privacy
 
-**Modelog never reads your prompts or your code.** The parser extracts timestamps, model ids, token counts and session identifiers, and nothing else — `message.content` is never touched. There is a test asserting this.
+**Modelog never reads your prompts or your code.** The parser extracts timestamps, model ids, token counts and session identifiers, and nothing else — message content is never touched, for either assistant. There is a test asserting this.
 
-Nothing leaves your machine. Parts 1 and 2 make no network calls at all.
+Nothing leaves your machine. No network calls, no telemetry, no account.
 
 ## Honest numbers
 
 A measurement tool that shows a wrong number is worse than one that shows a gap, so:
 
-- Costs are integer arithmetic in micro-dollars; floating point is never used for money.
+- Costs are integer arithmetic — never floating point — in an explicit unit per assistant.
 - An unrecognised model is reported as **cost unavailable**, never priced at a default rate.
 - Billing mode is auto-detected. On a subscription, figures are labelled as estimates at API list rates, because a subscription is not billed per token.
-- Rates live in a versioned data file (`data/pricing.json`), not in code, and go stale visibly.
+- Rates live in versioned data files, not in code, and go stale visibly.
 
-## Development
+## Enterprise
 
-Requires Node 24+.
+Modelog Enterprise brings team-wide visibility: cost-per-outcome and model-switch patterns rolled up across a team, plus budget alerts — without a manager ever seeing an individual's raw prompts or code. Only derived metrics and labels sync, and only by explicit opt-in; nothing leaves a developer's machine until they choose to turn it on.
 
-```bash
-npm install
-npm run build      # esbuild: extension host + webview
-npm run check      # typecheck + theme lint + tests
-```
-
-Press <kbd>F5</kbd> in VS Code to launch an Extension Development Host, then run **Modelog: Open Dashboard** from the command palette.
-
-Tests are plain TypeScript run by `node --test` — no test framework dependency.
+Not yet available — follow progress at [modelog.dev](https://modelog.dev) Coming Soon!.
 
 ## Documentation
 
@@ -60,12 +61,15 @@ Tests are plain TypeScript run by `node --test` — no test framework dependency
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements — what and why |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Part 1 technical design — how |
 | [`docs/MCP.md`](docs/MCP.md) | MCP bridge requirements (Part 2) |
+| [`docs/INSTALL-ux.md`](docs/INSTALL-ux.md) | Install, activation and first-run UX |
+
+Contributing? See [`CONTRIBUTING.md`](CONTRIBUTING.md) for build/test instructions and the codebase layout.
 
 ## Roadmap
 
-1. **The extension** — local capture, storage, metrics, dashboard. *In progress.*
-2. **Work logs & the analysis bridge** — a local MCP server so your existing agent can reason over your own data, plus optional session labelling.
-3. **Enterprise & web** — team rollups, opt-in telemetry, modelog.dev.
+1. **The extension** — local capture, storage, metrics, dashboard, for Claude Code and GitHub Copilot. *Done.*
+2. **The analysis bridge** — a local MCP server so your existing agent can reason over your own data. *Done.*
+3. **Enterprise & web** — team rollups, opt-in sync, modelog.dev. *In progress.*
 
 ## Contact
 

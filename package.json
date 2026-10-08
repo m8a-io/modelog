@@ -1,7 +1,7 @@
 {
   "name": "modelog",
-  "displayName": "Modelog",
-  "description": "See what actually changed when you changed how you work with AI.",
+  "displayName": "Modelog — AI Model Cost & Usage Analytics",
+  "description": "See exactly what switching AI models costs and changes — measured from your own Claude Code & GitHub Copilot session logs. 100% local, zero telemetry.",
   "author": "Scott Molinari <scott.molinari@m8a.io>",
   "homepage": "https://modelog.dev",
   "repository": {
@@ -11,15 +11,55 @@
   "bugs": {
     "url": "https://github.com/m8a-io/modelog/issues"
   },
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "modelog",
   "license": "MIT",
+  "icon": "images/modelog-logo-128x128.png",
+  "preview": true,
+  "galleryBanner": {
+    "color": "#1A1A2E",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.101.0",
     "node": ">=24"
   },
   "categories": [
+    "Visualization",
+    "Data Science",
     "Other"
+  ],
+  "keywords": [
+    "ai",
+    "artificial intelligence",
+    "llm",
+    "large language model",
+    "claude",
+    "claude code",
+    "anthropic",
+    "copilot",
+    "github copilot",
+    "ai coding assistant",
+    "ai agent",
+    "pair programming",
+    "cost tracking",
+    "cost analysis",
+    "spend tracking",
+    "budget",
+    "token usage",
+    "token cost",
+    "usage analytics",
+    "dashboard",
+    "metrics",
+    "analytics",
+    "model comparison",
+    "api cost",
+    "billing",
+    "credits",
+    "cache hit rate",
+    "privacy",
+    "session logs",
+    "local-first"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
@@ -97,8 +137,8 @@
           "default": "auto",
           "enumDescriptions": [
             "Detect from Claude Code's configuration (recommended).",
-            "Seat or plan billing \u2014 costs are shown as estimates at API list rates.",
-            "Per-token API billing \u2014 costs track actual spend."
+            "Seat or plan billing — costs are shown as estimates at API list rates.",
+            "Per-token API billing — costs track actual spend."
           ],
           "description": "How your AI assistant usage is billed. Determines how Modelog describes its cost figures."
         },
@@ -113,7 +153,7 @@
             "Read Copilot's debug logs if they already exist.",
             "Never read Copilot data, even if logs are present."
           ],
-          "description": "Whether to include GitHub Copilot sessions. Modelog only ever reads logs Copilot has already written \u2014 it never turns Copilot's logging on by itself. Use \"Modelog: Enable Copilot Analysis\" for that."
+          "description": "Whether to include GitHub Copilot sessions. Modelog only ever reads logs Copilot has already written — it never turns Copilot's logging on by itself. Use \"Modelog: Enable Copilot Analysis\" for that."
         },
         "modelog.copilotLogPaths": {
           "type": "array",
@@ -121,7 +161,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Override the workspaceStorage directories scanned for Copilot logs. Empty means derive it from this extension's own storage path, which is correct unless you run more than one VS Code installation."
+          "description": "Override the directories scanned for Copilot logs (both workspaceStorage and globalStorage — Copilot writes to whichever applies). Empty means derive both from this extension's own storage path, which is correct unless you run more than one VS Code installation."
         },
         "modelog.statusBar.enabled": {
           "type": "boolean",
@@ -149,16 +189,19 @@
     "lint:theme": "./scripts/check-theme.sh",
     "check": "npm run typecheck && npm run lint:theme && npm test",
     "pretest": "node scripts/check-node.mjs && node esbuild.mjs",
-    "test": "node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/*.test.ts"
+    "test": "node --test --disable-warning=MODULE_TYPELESS_PACKAGE_JSON test/*.test.ts",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.6.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "echarts": "^6.1.0"
   }
 }
