@@ -12,3 +12,9 @@ CONTRIBUTING.md
 .gitignore
 .mcp.json
 **/*.map
+# Only the icon needs to be IN the package -- package.json's "icon" field
+# requires the file physically present, and vsce hard-errors without it.
+# The README's GIF renders on the Marketplace listing via vsce's GitHub
+# raw-URL rewriting (confirmed working), not from inside the installed
+# package, so shipping it to every installer's machine is pure dead weight.
+images/*.gif
