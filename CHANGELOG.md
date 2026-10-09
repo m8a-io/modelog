@@ -2,6 +2,14 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] — Codex support
+
+### Added
+
+- **Local capture for Codex**, read from `~/.codex/sessions/**/*.jsonl` — the CLI and the official `openai.chatgpt` VS Code extension share this one on-disk store, so one adapter covers both. Model, tokens (input, cache read, cache write, reasoning, output), cost, session and timing data. Never reads prompt, reasoning, or tool-call content.
+- **Codex pricing** — `gpt-6.1-sol` and `gpt-6-astra` added to the rate card, so Codex turns show a real dollar figure rather than "cost unavailable". Figures are always framed as an estimate, since Modelog cannot detect whether you pay for Codex through a ChatGPT subscription or metered API credits without reading Codex's credential file, which it will not do.
+- Codex's request-level pricing tier (`service_tier`) is captured honestly: the default tier is priced, and a turn on an unconfirmed faster tier correctly shows as cost-unavailable rather than being silently priced at the wrong rate.
+
 ## [0.1.0] — First preview release
 
 Modelog's first public release. **Beta** — core local analysis works end-to-end against real data, but interfaces and stored data may still change release to release.

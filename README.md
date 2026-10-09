@@ -5,7 +5,7 @@
 <h1 align="center">Modelog</h1>
 <p align="center"><strong>See exactly what switching AI models costs and changes — measured from your own session logs, never your code.</strong></p>
 
-> **Status: Beta.** Core local analysis — Claude Code and GitHub Copilot capture, the dashboard, the MCP bridge — works end-to-end against real data. Interfaces and stored data may still change release to release.
+> **Status: Beta.** Core local analysis — Claude Code, GitHub Copilot, and Codex capture, the dashboard, the MCP bridge — works end-to-end against real data. Interfaces and stored data may still change release to release.
 
 ---
 
@@ -21,11 +21,11 @@ Modelog answers that from data already sitting on your disk.
 
 ## What it does
 
-- **Reads your local session logs.** Claude Code (`~/.claude/projects/**/*.jsonl`) and GitHub Copilot (opt-in, its own debug logs), behind a source-agnostic adapter so other assistants can follow.
+- **Reads your local session logs.** Claude Code (`~/.claude/projects/**/*.jsonl`), GitHub Copilot (opt-in, its own debug logs), and Codex (`~/.codex/sessions/**/*.jsonl`, CLI and the official VS Code extension share this one store), behind a source-agnostic adapter so other assistants can follow.
 - **Prices every turn properly.** Four separately-billed token classes — fresh input, cache read, cache creation, output — with 5-minute and 1-hour cache writes priced apart. In real usage ~95% of input-side tokens are cache reads, so a naive calculation is wrong by orders of magnitude.
 - **Compares models on normalised metrics.** Cost per turn, turns per session, cache hit rate — not raw totals.
 - **Anchors comparisons on real events.** Model switches are detected from the logs, including mid-session, and drawn on the trend chart.
-- **Keeps each assistant in its own unit.** A dollar total (Claude Code) and a credit total (Copilot) are never summed, compared, or placed on the same axis — switch between them with one click instead.
+- **Keeps each assistant in its own unit.** Claude Code and Codex both report in dollars, Copilot in credits — but figures are never summed, compared, or placed on the same axis across assistants, even when the unit matches. Switch between them with one click instead.
 - **Lets Claude Code query its own usage data.** A local MCP server exposes the same metrics as tools, behind an explicit opt-in — ask your assistant directly instead of reading a chart.
 - **Looks like your editor.** Every colour is a VS Code theme variable, so the UI follows your theme — including live theme switches and high-contrast. Enforced in CI.
 
@@ -67,7 +67,7 @@ Contributing? See [`CONTRIBUTING.md`](CONTRIBUTING.md) for build/test instructio
 
 ## Roadmap
 
-1. **The extension** — local capture, storage, metrics, dashboard, for Claude Code and GitHub Copilot. *Done.*
+1. **The extension** — local capture, storage, metrics, dashboard, for Claude Code, GitHub Copilot, and Codex. *Done.*
 2. **The analysis bridge** — a local MCP server so your existing agent can reason over your own data. *Done.*
 3. **Enterprise & web** — team rollups, opt-in sync, modelog.dev. *In progress.*
 

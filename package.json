@@ -1,7 +1,7 @@
 {
   "name": "modelog",
   "displayName": "Modelog — AI Model Cost & Usage Analytics",
-  "description": "See exactly what switching AI models costs and changes — measured from your own Claude Code & GitHub Copilot session logs. 100% local, zero telemetry.",
+  "description": "See exactly what switching AI models costs and changes — measured from your own Claude Code, GitHub Copilot & Codex session logs. 100% local, zero telemetry.",
   "author": "Scott Molinari <scott.molinari@m8a.io>",
   "homepage": "https://modelog.dev",
   "repository": {
@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/m8a-io/modelog/issues"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "Modelog",
   "license": "MIT",
   "icon": "images/modelog-logo-128x128.png",
@@ -39,6 +39,9 @@
     "anthropic",
     "copilot",
     "github copilot",
+    "codex",
+    "openai",
+    "openai codex",
     "ai coding assistant",
     "ai agent",
     "pair programming",
