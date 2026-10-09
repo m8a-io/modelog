@@ -17,7 +17,7 @@
   },
 
   "modifiers": {
-    "$comment": "Request-level repricing, recorded per turn in message.usage. Ratios over ratio_scale, applied to EVERY token class. A value absent from these tables is UNKNOWN and must yield a null cost - see unknown_modifier_policy. Codex's service_tier shares this table under its own value names (\"default\", not \"standard\") rather than a separate field, since the role is identical: a request-level modifier the source reports per turn. Only \"default\" (confirmed against real captured sessions, ratio 1x) is listed - Codex also offers faster, more expensive tiers (OpenAI's own material describes a 2x-priced \"Fast\" mode for GPT-6 Astra and a 6x-priced \"Ultrafast\" mode for GPT-6.1 Sol), but the exact wire value service_tier carries for those has not been confirmed against a real log, so turns on them correctly price as unavailable rather than guessed - see unknown_modifier_policy.",
+    "$comment": "Request-level repricing, recorded per turn in message.usage. Ratios over ratio_scale, applied to EVERY token class. A value absent from these tables is UNKNOWN and must yield a null cost - see unknown_modifier_policy. Codex's service_tier shares this table under its own value names (\"default\", not \"standard\") rather than a separate field, since the role is identical: a request-level modifier the source reports per turn. Only \"default\" (confirmed against real captured sessions, ratio 1x) is listed. OpenAI's own pricing page shows every current GPT-6 model at uniform Batch/Flex=0.5x, Fast=2x, Ultrafast=6x of Standard - the ratios ARE confirmed and uniform across models, unlike this file's first guess assumed - but the exact wire value service_tier carries for those tiers has not been confirmed against a real Codex log (only \"default\" has), so turns on them correctly price as unavailable rather than guessed - see unknown_modifier_policy. Add batch/flex/fast/ultrafast entries here once a real log confirms the wire values.",
     "speed": {
       "standard": 10000,
       "fast": 20000,
@@ -48,7 +48,9 @@
     "claude-haiku-4-5":  { "input":  1.0, "output":  5.0 },
 
     "gpt-6-astra":  { "input": 10.0, "output": 50.0, "cache_read": 1000 },
-    "gpt-6.1-sol":  { "input":  2.0, "output": 10.0, "cache_read":  500 }
+    "gpt-6.1-sol":  { "input":  2.0, "output": 10.0, "cache_read":  500 },
+    "gpt-6-sol":    { "input":  2.0, "output": 10.0, "cache_read": 1000 },
+    "gpt-6-luna":   { "input":  0.10, "output": 0.50, "cache_read": 1000 }
   },
 
   "unknown_model_policy": "fail",
