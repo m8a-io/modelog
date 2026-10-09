@@ -2,6 +2,12 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] — Round out Codex pricing
+
+### Added
+
+- **`gpt-6-sol` and `gpt-6-luna`** added to the rate card, rounding out the current GPT-6 coding-model generation alongside `gpt-6-astra` and `gpt-6.1-sol`. A turn on either now shows a real dollar figure instead of "cost unavailable".
+
 ## [0.2.0] — Codex support
 
 ### Added
