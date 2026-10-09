@@ -83,3 +83,26 @@ export function copilotBillingCopy(): { label: string; detail: string } {
       "figures are never added together or compared.",
   };
 }
+
+/**
+ * How to describe Codex's figures.
+ *
+ * Codex reports no cost in its own logs, so every figure is derived from
+ * token counts against Modelog's own rate card, the same as Claude Code.
+ * Unlike Claude Code, there is no billing-mode file Modelog is willing to
+ * read: `~/.codex/auth.json` holds OAuth credentials, not configuration, so
+ * it is deliberately never opened. That means Modelog cannot tell a ChatGPT
+ * subscription (not metered per token) apart from API-key billing here —
+ * stating that plainly is the honest option, not a guess at a default.
+ */
+export function codexBillingCopy(): { label: string; detail: string } {
+  return {
+    label: "Codex (shadow price)",
+    detail:
+      "Codex figures are estimates at published API list rates, derived from " +
+      "token counts the same way Claude Code's are. Modelog cannot detect whether " +
+      "you pay for Codex through a ChatGPT subscription or metered API credits — " +
+      "doing so would mean reading Codex's credential file, which Modelog will not " +
+      "do — so treat these figures as a relative comparison across models, not a bill.",
+  };
+}

@@ -31,6 +31,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logPaths: cfg().get<string[]>("logPaths", ["~/.claude/projects"]),
     billingMode: cfg().get<string>("billingMode", "subscription"),
     copilotLogPaths: copilotLogPaths(context, cfg),
+    codexLogPaths: cfg().get<string[]>("codexLogPaths", ["~/.codex/sessions"]),
   });
 
   await service.init();

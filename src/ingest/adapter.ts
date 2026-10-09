@@ -4,15 +4,15 @@ import type { ParseResult } from "./types.ts";
  * Which assistant a turn was captured from.
  *
  * Stored on every turn and used to keep sources apart wherever mixing them
- * would produce a meaningless figure — most importantly cost, where the two
- * sources do not even share a unit (PRD §4.5, §8.2).
+ * would produce a meaningless figure — most importantly cost, where sources
+ * do not necessarily share a unit (PRD §4.5, §8.2).
  */
-export type TurnSource = "claude-code" | "copilot";
+export type TurnSource = "claude-code" | "copilot" | "codex";
 
 /**
  * A per-source ingest adapter (PRD §7.1).
  *
- * Deliberately four members. Each one exists because the two real sources
+ * Deliberately four members. Each one exists because the real sources
  * differ on it; nothing here is reserved for a source that does not exist yet.
  */
 export interface SourceAdapter {

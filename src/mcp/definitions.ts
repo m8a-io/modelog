@@ -6,7 +6,7 @@ import {
 } from "../ingest/capture.ts";
 import { resolveRates, turnCostMicro, type PricingFile, type RateTable } from "../metrics/cost.ts";
 import { partitionBySource } from "../metrics/aggregate.ts";
-import { billingCopy, copilotBillingCopy, type BillingInfo } from "../ingest/billing.ts";
+import { billingCopy, copilotBillingCopy, codexBillingCopy, type BillingInfo } from "../ingest/billing.ts";
 import { staleRateTableNote } from "./envelope.ts";
 
 /**
@@ -121,6 +121,8 @@ export interface Definitions {
     }>;
     /** Present whether or not Copilot turns exist, so the caveat is never missing when they do. */
     copilotBilling: string;
+    /** Present whether or not Codex turns exist, so the caveat is never missing when they do. */
+    codexBilling: string;
     tokenBreakdown: string;
   };
   /** Metrics the query tools return whose definition is not in their name. */
@@ -270,24 +272,27 @@ export function buildDefinitions(input: DefinitionsInput): Definitions {
     sources: {
       definition:
         "Every turn records which assistant produced it. Modelog ingests " +
-        "Claude Code and GitHub Copilot, and the two differ in ways that " +
-        "change what a figure means, not merely where it came from.",
+        "Claude Code, GitHub Copilot, and Codex, and they differ in ways " +
+        "that change what a figure means, not merely where it came from.",
       costIsNotComparable:
         "Costs from different sources are in different units and are never " +
-        "converted into one another. A Claude Code cost is in micro-dollars " +
-        "and is derived by Modelog from token counts and a rate table. A " +
+        "converted into one another. A Claude Code or Codex cost is in " +
+        "micro-dollars, derived by Modelog from token counts and a rate " +
+        "table — the same unit, but never summed across those two sources " +
+        "either, since they are still different billing relationships. A " +
         "Copilot cost is in nano-AIU — Copilot's own credits — and is " +
         "measured and reported by Copilot itself per request. There is no " +
-        "conversion between them anywhere in Modelog, and figures from two " +
-        "sources are never summed, divided, or placed in one ratio. Note " +
-        "that the same model id can appear under both sources; those are " +
-        "different billing relationships, not the same number twice.",
+        "conversion between units anywhere in Modelog, and figures from " +
+        "different sources are never summed, divided, or placed in one ratio. " +
+        "Note that the same model id can appear under more than one source; " +
+        "those are different billing relationships, not the same number twice.",
       units: [
         "usd_micro — millionths of a US dollar, derived from tokens and rates",
         "aiu_nano — billionths of an AIU credit, as measured and reported by Copilot",
       ],
       observed: observedSources(turns),
       copilotBilling: copilotBillingCopy().detail,
+      codexBilling: codexBillingCopy().detail,
       tokenBreakdown:
         "Copilot bills cache-write tokens but does not report them, so " +
         "Modelog recovers them by solving Copilot's own billing equation " +
@@ -295,8 +300,8 @@ export function buildDefinitions(input: DefinitionsInput): Definitions {
         'breakdown is "unknown" is one where that solve had no exact answer — ' +
         "its total input tokens are known and its cost is known and measured, " +
         "but the split between fresh input and cache writes is not. Cache hit " +
-        "rate is therefore not meaningful for those turns. Claude Code " +
-        'reports every class outright, so its turns read "reported".',
+        "rate is therefore not meaningful for those turns. Claude Code and " +
+        'Codex report every class outright, so their turns read "reported".',
     },
 
     derivedMetrics: {
@@ -566,6 +571,24 @@ function toIso(ts: number | null): string | null {
  * with no Copilot turns says so by returning one entry, not by carrying prose
  * about a source that is not there.
  */
+function fieldsNotReportedBySource(source: string): string[] {
+  if (source === "copilot") {
+    return [
+      "cwd — not present in Copilot's logs; the workspace identifier is a hash that cannot be resolved to a path",
+      "gitBranch — not present in Copilot's logs",
+      "thinkingTokens — not reported separately; always 0 for this source, which is a gap rather than a measurement of zero",
+      "speed, inferenceGeo — Anthropic API pricing modifiers that do not apply to a call brokered by Copilot",
+    ];
+  }
+  if (source === "codex") {
+    return [
+      "costNanoAiu — this source does not report a cost; it is derived instead",
+      "speed, inferenceGeo — Anthropic API pricing modifiers that do not apply to a call brokered by Codex",
+    ];
+  }
+  return ["costNanoAiu — this source does not report a cost; it is derived instead"];
+}
+
 function observedSources(turns: readonly Turn[]): Definitions["sources"]["observed"] {
   const out: Definitions["sources"]["observed"] = [];
   for (const [source, list] of partitionBySource(turns)) {
@@ -577,15 +600,7 @@ function observedSources(turns: readonly Turn[]): Definitions["sources"]["observ
         source === "copilot"
           ? "measured and reported by the source per request"
           : "derived by Modelog from token counts and a dated rate table",
-      fieldsNotReported:
-        source === "copilot"
-          ? [
-              "cwd — not present in Copilot's logs; the workspace identifier is a hash that cannot be resolved to a path",
-              "gitBranch — not present in Copilot's logs",
-              "thinkingTokens — not reported separately; always 0 for this source, which is a gap rather than a measurement of zero",
-              "speed, inferenceGeo — Anthropic API pricing modifiers that do not apply to a call brokered by Copilot",
-            ]
-          : ["costNanoAiu — this source does not report a cost; it is derived instead"],
+      fieldsNotReported: fieldsNotReportedBySource(source),
     });
   }
   return out.sort((a, b) => a.source.localeCompare(b.source));

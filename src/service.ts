@@ -4,6 +4,7 @@ import { createStore, type Store } from "./store/index.ts";
 import { scan } from "./ingest/scanner.ts";
 import { claudeCodeAdapter } from "./ingest/claudeCode.ts";
 import { copilotAdapter } from "./ingest/copilot.ts";
+import { codexAdapter } from "./ingest/codex.ts";
 import {
   buildRateTable,
   formatMoney,
@@ -25,6 +26,7 @@ import {
   detectBilling,
   billingCopy,
   copilotBillingCopy,
+  codexBillingCopy,
   type BillingInfo,
 } from "./ingest/billing.ts";
 import type { Turn, TurnSource } from "./ingest/types.ts";
@@ -39,6 +41,7 @@ const OVERFLOW_COLOR = "--vscode-descriptionForeground";
 const SOURCE_LABELS: Record<string, string> = {
   "claude-code": "Claude Code",
   copilot: "GitHub Copilot",
+  codex: "Codex",
 };
 
 /**
@@ -67,6 +70,13 @@ export interface ServiceOptions {
    * Copilot's own logging on, and is not an error.
    */
   copilotLogPaths?: readonly string[];
+  /**
+   * Where Codex's rollout logs live. Unlike Copilot, Codex logs by default —
+   * there is no "turn on debug logging" step — so this behaves like
+   * `logPaths`, not `copilotLogPaths`: a default root, overridable, and empty
+   * is an explicit opt-out rather than the normal unconfigured state.
+   */
+  codexLogPaths?: readonly string[];
 }
 
 /**
@@ -112,24 +122,29 @@ export class ModelogService {
   rescan(): void {
     this.warnings = this.warnings.filter((w) => !w.startsWith("Ingest:"));
 
-    // Each source gets its own roots: Claude Code's logs and Copilot's live in
-    // unrelated places, and offering every adapter every root would mean
-    // walking a large tree looking for files that cannot be there.
+    // Each source gets its own roots: Claude Code's, Copilot's, and Codex's
+    // logs all live in unrelated places, and offering every adapter every
+    // root would mean walking a large tree looking for files that cannot be
+    // there.
     const res = scan(this.store, this.opts.logPaths, [claudeCodeAdapter]);
     const copilotPaths = this.opts.copilotLogPaths ?? [];
     const copilotRes =
       copilotPaths.length > 0
         ? scan(this.store, copilotPaths, [copilotAdapter])
         : null;
+    const codexPaths = this.opts.codexLogPaths ?? [];
+    const codexRes =
+      codexPaths.length > 0 ? scan(this.store, codexPaths, [codexAdapter]) : null;
 
-    // A missing Claude Code directory is worth saying; a missing Copilot one
-    // is the normal state for anyone not using Copilot and is not reported.
+    // A missing Claude Code directory is worth saying; a missing Copilot or
+    // Codex one is the normal state for anyone not using that tool and is
+    // not reported.
     if (res.missingPaths.length) {
       this.warnings.push(`Ingest: no log directory at ${res.missingPaths.join(", ")}`);
     }
 
     const byKind = new Map<string, number>();
-    for (const d of [...res.diagnostics, ...(copilotRes?.diagnostics ?? [])]) {
+    for (const d of [...res.diagnostics, ...(copilotRes?.diagnostics ?? []), ...(codexRes?.diagnostics ?? [])]) {
       byKind.set(d.kind, (byKind.get(d.kind) ?? 0) + 1);
     }
     for (const [kind, n] of byKind) {
@@ -247,12 +262,15 @@ export class ModelogService {
     }));
 
     // Billing copy belongs to the source being shown: Copilot's figures are
-    // measured credits against an allowance Modelog cannot see, which is a
-    // different claim from Claude Code's derived dollars.
+    // measured credits against an allowance Modelog cannot see, Codex's are
+    // derived dollars with no detectable billing mode, and Claude Code's are
+    // derived dollars with a detectable one — three different claims.
     const billing =
       active === "copilot"
         ? { ...copilotBillingCopy(), detected: true }
-        : { ...billingCopy(this.billing), detected: this.billing.detected };
+        : active === "codex"
+          ? { ...codexBillingCopy(), detected: false }
+          : { ...billingCopy(this.billing), detected: this.billing.detected };
 
     return {
       sources,

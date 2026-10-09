@@ -163,6 +163,16 @@
           "default": [],
           "description": "Override the directories scanned for Copilot logs (both workspaceStorage and globalStorage — Copilot writes to whichever applies). Empty means derive both from this extension's own storage path, which is correct unless you run more than one VS Code installation."
         },
+        "modelog.codexLogPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "~/.codex/sessions"
+          ],
+          "description": "Directories to scan for Codex (CLI and the openai.chatgpt VS Code extension share this log store) session logs. Empty disables Codex ingest."
+        },
         "modelog.statusBar.enabled": {
           "type": "boolean",
           "default": true,
