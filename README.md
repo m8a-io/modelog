@@ -61,6 +61,8 @@ Not yet available — follow progress at [modelog.dev](https://modelog.dev) Comi
 | [`docs/PRD.md`](docs/PRD.md) | Product requirements — what and why |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Part 1 technical design — how |
 | [`docs/MCP.md`](docs/MCP.md) | MCP bridge requirements (Part 2) |
+| [`docs/MODEL-SWITCHER.md`](docs/MODEL-SWITCHER.md) | Model switcher proposal and integration feasibility research — draft for review |
+| [`docs/PRICE-CHANGE-MONITOR.md`](docs/PRICE-CHANGE-MONITOR.md) | Future CI workflow for OpenAI and Claude price updates and extension releases |
 | [`docs/INSTALL-ux.md`](docs/INSTALL-ux.md) | Install, activation and first-run UX |
 
 Contributing? See [`CONTRIBUTING.md`](CONTRIBUTING.md) for build/test instructions and the codebase layout.
