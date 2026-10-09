@@ -166,6 +166,16 @@
           "default": [],
           "description": "Override the directories scanned for Copilot logs (both workspaceStorage and globalStorage — Copilot writes to whichever applies). Empty means derive both from this extension's own storage path, which is correct unless you run more than one VS Code installation."
         },
+        "modelog.copilotCliLogPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "~/.copilot/session-state"
+          ],
+          "description": "Directories to scan for standalone GitHub Copilot CLI session logs (a separate product and log format from the Copilot Chat extension, though the same GitHub Copilot billing applies). Override if COPILOT_HOME is set to something other than ~/.copilot. Empty disables Copilot CLI ingest."
+        },
         "modelog.codexLogPaths": {
           "type": "array",
           "items": {

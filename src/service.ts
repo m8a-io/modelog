@@ -4,6 +4,7 @@ import { createStore, type Store } from "./store/index.ts";
 import { scan } from "./ingest/scanner.ts";
 import { claudeCodeAdapter } from "./ingest/claudeCode.ts";
 import { copilotAdapter } from "./ingest/copilot.ts";
+import { copilotCliAdapter } from "./ingest/copilotCli.ts";
 import { codexAdapter } from "./ingest/codex.ts";
 import {
   buildRateTable,
@@ -71,6 +72,15 @@ export interface ServiceOptions {
    */
   copilotLogPaths?: readonly string[];
   /**
+   * Where the standalone Copilot CLI's session logs live. Unlike the Chat
+   * extension, the CLI logs by default — there is no "turn on debug logging"
+   * step — so this behaves like `codexLogPaths`: a default root, overridable,
+   * and empty is an explicit opt-out. Turns ingested from here land in the
+   * same `"copilot"` source as the Chat extension's (same billing pool, same
+   * `aiu_nano` unit — issue #9), distinguished only by `entrypoint`.
+   */
+  copilotCliLogPaths?: readonly string[];
+  /**
    * Where Codex's rollout logs live. Unlike Copilot, Codex logs by default —
    * there is no "turn on debug logging" step — so this behaves like
    * `logPaths`, not `copilotLogPaths`: a default root, overridable, and empty
@@ -122,29 +132,37 @@ export class ModelogService {
   rescan(): void {
     this.warnings = this.warnings.filter((w) => !w.startsWith("Ingest:"));
 
-    // Each source gets its own roots: Claude Code's, Copilot's, and Codex's
-    // logs all live in unrelated places, and offering every adapter every
-    // root would mean walking a large tree looking for files that cannot be
-    // there.
+    // Each source gets its own roots: Claude Code's, Copilot's, Copilot
+    // CLI's, and Codex's logs all live in unrelated places, and offering
+    // every adapter every root would mean walking a large tree looking for
+    // files that cannot be there.
     const res = scan(this.store, this.opts.logPaths, [claudeCodeAdapter]);
     const copilotPaths = this.opts.copilotLogPaths ?? [];
     const copilotRes =
       copilotPaths.length > 0
         ? scan(this.store, copilotPaths, [copilotAdapter])
         : null;
+    const copilotCliPaths = this.opts.copilotCliLogPaths ?? [];
+    const copilotCliRes =
+      copilotCliPaths.length > 0 ? scan(this.store, copilotCliPaths, [copilotCliAdapter]) : null;
     const codexPaths = this.opts.codexLogPaths ?? [];
     const codexRes =
       codexPaths.length > 0 ? scan(this.store, codexPaths, [codexAdapter]) : null;
 
-    // A missing Claude Code directory is worth saying; a missing Copilot or
-    // Codex one is the normal state for anyone not using that tool and is
-    // not reported.
+    // A missing Claude Code directory is worth saying; a missing Copilot,
+    // Copilot CLI, or Codex one is the normal state for anyone not using
+    // that tool and is not reported.
     if (res.missingPaths.length) {
       this.warnings.push(`Ingest: no log directory at ${res.missingPaths.join(", ")}`);
     }
 
     const byKind = new Map<string, number>();
-    for (const d of [...res.diagnostics, ...(copilotRes?.diagnostics ?? []), ...(codexRes?.diagnostics ?? [])]) {
+    for (const d of [
+      ...res.diagnostics,
+      ...(copilotRes?.diagnostics ?? []),
+      ...(copilotCliRes?.diagnostics ?? []),
+      ...(codexRes?.diagnostics ?? []),
+    ]) {
       byKind.set(d.kind, (byKind.get(d.kind) ?? 0) + 1);
     }
     for (const [kind, n] of byKind) {
