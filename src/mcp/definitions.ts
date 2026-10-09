@@ -583,7 +583,7 @@ function fieldsNotReportedBySource(source: string): string[] {
   if (source === "codex") {
     return [
       "costNanoAiu — this source does not report a cost; it is derived instead",
-      "speed, inferenceGeo — Anthropic API pricing modifiers that do not apply to a call brokered by Codex",
+      "inferenceGeo — no Codex equivalent of Anthropic's inference-region modifier has been observed",
     ];
   }
   return ["costNanoAiu — this source does not report a cost; it is derived instead"];

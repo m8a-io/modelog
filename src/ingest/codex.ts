@@ -45,6 +45,8 @@ interface TurnGroup {
   records: UsageLine[];
   /** The model in force (per `thread_settings_applied`) when this turn's first request arrived. */
   threadModelAtStart: string | null;
+  /** Likewise for service_tier — Codex's request-level pricing modifier. */
+  serviceTierAtStart: string | null;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -81,6 +83,7 @@ export function parseCodexChunk(text: string, file: string, startLine = 0): Pars
   let entrypoint: string | null = null;
 
   let threadModel: string | null = null;
+  let threadServiceTier: string | null = null;
   const turnModel = new Map<string, string>();
   const turnTrigger = new Map<string, string | null>();
   const groups = new Map<string, TurnGroup>();
@@ -145,6 +148,9 @@ export function parseCodexChunk(text: string, file: string, startLine = 0): Pars
       if (subtype === "thread_settings_applied") {
         const settings = payload.thread_settings;
         if (isObject(settings) && typeof settings.model === "string") threadModel = settings.model;
+        if (isObject(settings) && typeof settings.service_tier === "string") {
+          threadServiceTier = settings.service_tier;
+        }
         return;
       }
 
@@ -189,7 +195,7 @@ export function parseCodexChunk(text: string, file: string, startLine = 0): Pars
 
       let group = groups.get(turnId);
       if (!group) {
-        group = { records: [], threadModelAtStart: threadModel };
+        group = { records: [], threadModelAtStart: threadModel, serviceTierAtStart: threadServiceTier };
         groups.set(turnId, group);
       }
       group.records.push({
@@ -266,8 +272,15 @@ export function parseCodexChunk(text: string, file: string, startLine = 0): Pars
       // real request observed) — display-only, never re-added.
       thinkingTokens: cumulative.reasoning_output_tokens,
       iterations: records.length,
-      // Anthropic-API pricing modifiers; do not apply to an OpenAI-brokered call.
-      speed: null,
+      // Codex's request-level pricing modifier is service_tier, not Anthropic's
+      // speed/inference_geo vocabulary — but the role is the same (reprices
+      // every token class), so it is carried in the same field under its own
+      // value names ("default", not "standard"). Captured honestly, as
+      // reported, rather than nulled out: a tier the rate table has no entry
+      // for must fail closed to an unavailable cost, not silently price at
+      // the default rate (PRD §8.2) — nulling it here would hide that case.
+      speed: group.serviceTierAtStart,
+      // No Codex equivalent observed.
       inferenceGeo: null,
       entrypoint,
       isSidechain,

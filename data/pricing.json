@@ -2,24 +2,26 @@
   "$comment": "Modelog rate table. Base rates are USD per 1M tokens, transcribed from the published card. Every MULTIPLIER is an integer ratio over ratio_scale - never a decimal - because chained float multipliers produce artefacts at table-build time (3.0 * 0.1 = 0.30000000000000004). See PRD 8.2.",
   "schema_version": 2,
   "effective_date": "2026-09-27",
-  "source": "Anthropic first-party API list pricing, platform.claude.com/docs/en/about-claude/pricing",
+  "$effective_date_comment": "The OLDER of this file's two verification dates, by design: this field only drives a staleness check, and the Anthropic entries (verified 2026-09-27) are the ones actually that old. Using the OpenAI entries' later date (2026-10-09) here would overstate how recently the Anthropic entries were checked.",
+  "source": "Anthropic first-party API list pricing (platform.claude.com/docs/en/about-claude/pricing, verified 2026-09-27) and OpenAI first-party API list pricing (developers.openai.com/api/docs/pricing, developers.openai.com/api/docs/models/gpt-6.1-sol, developers.openai.com/api/docs/models/gpt-6-astra, verified 2026-10-09)",
   "currency": "USD",
   "unit": "per_1m_tokens",
 
   "ratio_scale": 10000,
 
   "cache_multipliers": {
-    "$comment": "Ratios over ratio_scale, applied to the model's base input rate. A model may override cache_read; the published card sets it per-model.",
+    "$comment": "Ratios over ratio_scale, applied to the model's base input rate. A model may override cache_read; the published card sets it per-model. cache_write_5m (1.25x) is also what OpenAI publishes for GPT-6 Astra ($12.50 vs $10.00 input) and GPT-6.1 Sol ($2.50 vs $2.00 input) cache writes - confirmed, not an accidental reuse of Anthropic's number. Codex's adapter always reports cache writes into the 5m bucket (OpenAI states no TTL tier), so cache_write_1h never applies to it.",
     "cache_read": 1000,
     "cache_write_5m": 12500,
     "cache_write_1h": 20000
   },
 
   "modifiers": {
-    "$comment": "Request-level repricing, recorded per turn in message.usage. Ratios over ratio_scale, applied to EVERY token class. A value absent from these tables is UNKNOWN and must yield a null cost - see unknown_modifier_policy.",
+    "$comment": "Request-level repricing, recorded per turn in message.usage. Ratios over ratio_scale, applied to EVERY token class. A value absent from these tables is UNKNOWN and must yield a null cost - see unknown_modifier_policy. Codex's service_tier shares this table under its own value names (\"default\", not \"standard\") rather than a separate field, since the role is identical: a request-level modifier the source reports per turn. Only \"default\" (confirmed against real captured sessions, ratio 1x) is listed - Codex also offers faster, more expensive tiers (OpenAI's own material describes a 2x-priced \"Fast\" mode for GPT-6 Astra and a 6x-priced \"Ultrafast\" mode for GPT-6.1 Sol), but the exact wire value service_tier carries for those has not been confirmed against a real log, so turns on them correctly price as unavailable rather than guessed - see unknown_modifier_policy.",
     "speed": {
       "standard": 10000,
-      "fast": 20000
+      "fast": 20000,
+      "default": 10000
     },
     "inference_geo": {
       "global": 10000,
@@ -43,7 +45,10 @@
     "claude-sonnet-5":   { "input":  2.0, "output": 10.0 },
     "claude-sonnet-4-6": { "input":  3.0, "output": 15.0 },
     "claude-sonnet-4-5": { "input":  3.0, "output": 15.0 },
-    "claude-haiku-4-5":  { "input":  1.0, "output":  5.0 }
+    "claude-haiku-4-5":  { "input":  1.0, "output":  5.0 },
+
+    "gpt-6-astra":  { "input": 10.0, "output": 50.0, "cache_read": 1000 },
+    "gpt-6.1-sol":  { "input":  2.0, "output": 10.0, "cache_read":  500 }
   },
 
   "unknown_model_policy": "fail",

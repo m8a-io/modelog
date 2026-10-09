@@ -48,11 +48,11 @@ function taskStarted(turnId: string, over: Record<string, unknown> = {}): string
   });
 }
 
-function threadSettingsApplied(model: string): string {
+function threadSettingsApplied(model: string, serviceTier = "default"): string {
   return line("event_msg", {
     type: "thread_settings_applied",
     thread_id: "sess-1",
-    thread_settings: { model, model_provider_id: "openai", service_tier: "default" },
+    thread_settings: { model, model_provider_id: "openai", service_tier: serviceTier },
   });
 }
 
@@ -209,6 +209,32 @@ test("a turn with no resolvable model is skipped and reported, never guessed", (
   assert.equal(diagnostics.length, 1);
   assert.equal(diagnostics[0]!.kind, "unknown-shape");
   assert.match(diagnostics[0]!.detail, /no resolvable model/);
+});
+
+// --- pricing modifier (service_tier, carried as speed) ------------------------
+
+test("service_tier is captured as speed, not nulled out — even the default tier", () => {
+  const text =
+    [sessionMeta(), threadSettingsApplied("gpt-6.1-sol", "default"), turnContext("t1", "gpt-6.1-sol"), usageRecord("t1", { input_tokens: 10 })].join(
+      "\n",
+    ) + "\n";
+  const { turns } = parseCodexChunk(text, "f.jsonl");
+  assert.equal(turns[0]!.speed, "default");
+});
+
+test("a non-default service_tier is carried through literally, not guessed into a known one", () => {
+  const text =
+    [sessionMeta(), threadSettingsApplied("gpt-6.1-sol", "ultrafast"), turnContext("t1", "gpt-6.1-sol"), usageRecord("t1", { input_tokens: 10 })].join(
+      "\n",
+    ) + "\n";
+  const { turns } = parseCodexChunk(text, "f.jsonl");
+  assert.equal(turns[0]!.speed, "ultrafast");
+});
+
+test("no thread_settings_applied ever seen yields a null speed, not a guessed tier", () => {
+  const text = [sessionMeta(), turnContext("t1", "gpt-6.1-sol"), usageRecord("t1", { input_tokens: 10 })].join("\n") + "\n";
+  const { turns } = parseCodexChunk(text, "f.jsonl");
+  assert.equal(turns[0]!.speed, null);
 });
 
 // --- cache writes --------------------------------------------------------------
