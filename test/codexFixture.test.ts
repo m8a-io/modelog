@@ -72,7 +72,10 @@ const SAFE_EVENT_MSG_KEYS: Record<string, Set<string>> = {
     "duration_ms",
     "time_to_first_token_ms",
   ]),
+  thread_settings_applied: new Set(["type", "thread_id", "thread_settings"]),
 };
+
+const SAFE_THREAD_SETTINGS_KEYS = new Set(["model", "model_provider_id", "service_tier"]);
 
 /** Fields known to carry prompt, code, or system-prompt text. Named explicitly
  *  so the test states what it defends against, not just what it permits. */
@@ -139,6 +142,16 @@ test("no fixture record carries a key outside the structural allowlist", () => {
         for (const key of Object.keys(values)) {
           assert.ok(SAFE_USAGE_KEYS.has(key), `${file}:${line} ${bucket} has non-allowlisted key "${key}"`);
         }
+      }
+    }
+
+    if (type === "event_msg" && payload.type === "thread_settings_applied") {
+      const settings = (payload.thread_settings ?? {}) as Record<string, unknown>;
+      for (const key of Object.keys(settings)) {
+        assert.ok(
+          SAFE_THREAD_SETTINGS_KEYS.has(key),
+          `${file}:${line} thread_settings has non-allowlisted key "${key}"`,
+        );
       }
     }
   }

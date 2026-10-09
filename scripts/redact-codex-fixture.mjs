@@ -111,6 +111,20 @@ function redactPayload(type, payload) {
           "time_to_first_token_ms",
         ]);
       }
+      if (subtype === "thread_settings_applied") {
+        return {
+          ...pick(payload, ["type", "thread_id"]),
+          ...(payload.thread_settings
+            ? {
+                thread_settings: pick(payload.thread_settings, [
+                  "model",
+                  "model_provider_id",
+                  "service_tier",
+                ]),
+              }
+            : {}),
+        };
+      }
       // token_count, item_completed, and anything else: structure only.
       return pick(payload, ["type"]);
     }
