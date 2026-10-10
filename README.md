@@ -21,7 +21,7 @@ Modelog answers that from data already sitting on your disk.
 
 ## What it does
 
-- **Reads your local session logs.** Claude Code (`~/.claude/projects/**/*.jsonl`), GitHub Copilot (opt-in, its own debug logs), and Codex (`~/.codex/sessions/**/*.jsonl`, CLI and the official VS Code extension share this one store), behind a source-agnostic adapter so other assistants can follow.
+- **Reads your local session logs.** Claude Code (`~/.claude/projects/**/*.jsonl`), GitHub Copilot — both the Chat extension (opt-in, its own debug logs) and the standalone Copilot CLI (`~/.copilot/session-state/**/*.jsonl`) — and Codex (`~/.codex/sessions/**/*.jsonl`, CLI and the official VS Code extension share this one store), behind a source-agnostic adapter so other assistants can follow.
 - **Prices every turn properly.** Four separately-billed token classes — fresh input, cache read, cache creation, output — with 5-minute and 1-hour cache writes priced apart. In real usage ~95% of input-side tokens are cache reads, so a naive calculation is wrong by orders of magnitude.
 - **Compares models on normalised metrics.** Cost per turn, turns per session, cache hit rate — not raw totals.
 - **Anchors comparisons on real events.** Model switches are detected from the logs, including mid-session, and drawn on the trend chart.

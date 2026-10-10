@@ -2,6 +2,12 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] — GitHub Copilot CLI support
+
+### Added
+
+- **Local capture for the standalone GitHub Copilot CLI**, read from `~/.copilot/session-state/**/*.jsonl` — a separate product from the Copilot Chat VS Code extension, with its own log format, but the same GitHub Copilot billing pool and credit unit, so its turns join the existing Copilot dashboard rather than needing one of their own. Model, tokens (input, cache read, cache write — including the cache's own stated 5-minute/1-hour TTL tier), and cost are all reported directly by the source, not solved or assumed, unlike the Chat extension's debug logs. Never reads prompt or tool-call content.
+
 ## [0.2.1] — Round out Codex pricing
 
 ### Added
