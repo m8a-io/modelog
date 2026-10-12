@@ -163,6 +163,7 @@ function modifierNumerator(turn: Turn, table: RateTable): number | null {
   const observed: Array<[string, string | null]> = [
     ["speed", turn.speed],
     ["inference_geo", turn.inferenceGeo],
+    ["service_tier", turn.serviceTier],
   ];
 
   let numerator = table.ratioScale;

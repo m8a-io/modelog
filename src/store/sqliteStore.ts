@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS turns (
   token_breakdown       TEXT,
   message_id            TEXT,
   request_id            TEXT,
+  service_tier          TEXT,
+  fallback_credit       TEXT,
   cwd                   TEXT,
   git_branch            TEXT,
   source_file           TEXT    NOT NULL
@@ -98,6 +100,8 @@ const ADDED_COLUMNS: ReadonlyArray<{ column: string; ddl: string }> = [
   { column: "token_breakdown", ddl: "ALTER TABLE turns ADD COLUMN token_breakdown TEXT" },
   { column: "message_id", ddl: "ALTER TABLE turns ADD COLUMN message_id TEXT" },
   { column: "request_id", ddl: "ALTER TABLE turns ADD COLUMN request_id TEXT" },
+  { column: "service_tier", ddl: "ALTER TABLE turns ADD COLUMN service_tier TEXT" },
+  { column: "fallback_credit", ddl: "ALTER TABLE turns ADD COLUMN fallback_credit TEXT" },
 ];
 
 /**
@@ -180,8 +184,9 @@ export class SqliteStore implements Store {
          cache_write_5m_tokens, cache_write_1h_tokens, output_tokens,
          thinking_tokens, iterations, entrypoint, is_sidechain, capture_version,
          speed, inference_geo, source, cost_nano_aiu, token_breakdown,
-         message_id, request_id, cwd, git_branch, source_file)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         message_id, request_id, service_tier, fallback_credit,
+         cwd, git_branch, source_file)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
     this.db.exec("BEGIN");
     try {
@@ -191,7 +196,8 @@ export class SqliteStore implements Store {
           t.cacheWrite5mTokens, t.cacheWrite1hTokens, t.outputTokens,
           t.thinkingTokens, t.iterations, t.entrypoint, t.isSidechain ? 1 : 0,
           t.captureVersion, t.speed, t.inferenceGeo, t.source, t.costNanoAiu,
-          t.tokenBreakdown, t.messageId, t.requestId, t.cwd, t.gitBranch, t.sourceFile,
+          t.tokenBreakdown, t.messageId, t.requestId, t.serviceTier, t.fallbackCredit,
+          t.cwd, t.gitBranch, t.sourceFile,
         );
       }
       this.db.exec("COMMIT");
@@ -257,6 +263,8 @@ function rowToTurn(r: any): Turn {
     captureVersion: r.capture_version,
     speed: r.speed ?? null,
     inferenceGeo: r.inference_geo ?? null,
+    serviceTier: r.service_tier ?? null,
+    fallbackCredit: r.fallback_credit ?? null,
     source: r.source ?? "claude-code",
     costNanoAiu: r.cost_nano_aiu ?? null,
     tokenBreakdown: r.token_breakdown ?? null,

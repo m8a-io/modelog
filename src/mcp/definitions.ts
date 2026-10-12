@@ -440,6 +440,16 @@ export function definitionsNotes(
     );
   }
 
+  if (billing.mode === "subscription-extra") {
+    notes.push(
+      "Billing mode is subscription with extra usage enabled: once the plan " +
+        "allowance runs out, further usage bills from usage credits per token. " +
+        "Which turns drew from that pool is not recorded on disk, so every " +
+        "figure remains an estimate at API list rates and no estimated/billed " +
+        "split exists.",
+    );
+  }
+
   const stale = staleRateTableNote(effectiveDate, now);
   if (stale) notes.push(stale);
 

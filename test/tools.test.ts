@@ -204,7 +204,9 @@ test("a session with uncaptured fields says so, rather than showing an empty arr
   const s = unwrap(listSessions(ctx({ turns: WITH_LEGACY }), {})).data.sessions;
   const legacy = s.find((x: any) => x.sessionId === "legacy");
   assert.deepEqual(legacy.entrypoints, []);
-  assert.deepEqual(legacy.uncapturedFields, ["entrypoint", "inferenceGeo", "isSidechain", "speed"]);
+  assert.deepEqual(legacy.uncapturedFields, [
+    "entrypoint", "fallbackCredit", "inferenceGeo", "isSidechain", "serviceTier", "speed",
+  ]);
   assert.equal(legacy.uncapturedTurns, 2);
 
   const fully = s.find((x: any) => x.sessionId === "s1");
@@ -244,7 +246,9 @@ test("a stored value proves capture even when the row's version predates the fie
   assert.ok(isCaptured(BACKFILLED, "entrypoint"), "Modelog cannot invent an entrypoint");
   assert.ok(isCaptured(BACKFILLED, "speed"));
   assert.ok(!isCaptured(BACKFILLED, "inferenceGeo"), "null at version 1 is still unknown");
-  assert.deepEqual(uncapturedFields(BACKFILLED), ["inferenceGeo", "isSidechain"]);
+  assert.deepEqual(uncapturedFields(BACKFILLED), [
+    "fallbackCredit", "inferenceGeo", "isSidechain", "serviceTier",
+  ]);
 });
 
 test("isSidechain resolves one way only — true is proof, false is also the column default", () => {

@@ -6,14 +6,21 @@ import { homedir } from "node:os";
  * Detects how the user pays for Claude Code, so Modelog can describe its own
  * numbers honestly without asking.
  *
- * Claude Code records this in ~/.claude.json under oauthAccount.billingType.
- * "prepaid" means API credits — per-token billing, so Modelog's figures track
- * real spend. A seat/subscription plan is not billed per token, which makes
- * every figure a shadow price (PRD §8.2).
+ * Claude Code records this in ~/.claude.json under oauthAccount. Two fields
+ * are read; no credentials are touched:
  *
- * Only that one field is read; no credentials are touched.
+ * - `billingType` — "prepaid" means API credits: per-token billing, so
+ *   Modelog's figures track real spend. A seat/subscription plan is not
+ *   billed per token, which makes every figure a shadow price (PRD §8.2).
+ *   The value set is wider and less stable than it looks: switching the
+ *   payment method on an account has been observed to flip it (issue #12),
+ *   so nothing beyond the one known value is interpreted.
+ * - `hasExtraUsageEnabled` — a subscription that can spill into per-token
+ *   "usage credits" once the plan allowance runs out. Which turns drew from
+ *   that pool is recorded nowhere on disk, so the mode changes what Modelog
+ *   SAYS about its figures, never how they are computed.
  */
-export type BillingMode = "api" | "subscription";
+export type BillingMode = "api" | "subscription" | "subscription-extra";
 
 export interface BillingInfo {
   mode: BillingMode;
@@ -23,20 +30,30 @@ export interface BillingInfo {
   rawType: string | null;
 }
 
-export function detectBilling(): BillingInfo {
-  const path = join(homedir(), ".claude.json");
+export function detectBilling(
+  path: string = join(homedir(), ".claude.json"),
+): BillingInfo {
   if (!existsSync(path)) return { mode: "subscription", detected: false, rawType: null };
 
   try {
     const cfg = JSON.parse(readFileSync(path, "utf8"));
-    const raw = cfg?.oauthAccount?.billingType;
+    const account = cfg?.oauthAccount;
+    const raw = account?.billingType;
     if (typeof raw !== "string") {
       return { mode: "subscription", detected: false, rawType: null };
     }
     // Only "prepaid" is known to mean per-token API credits. Anything else
-    // is treated as a subscription, because over-claiming that a number is
-    // real money is the worse error.
-    return { mode: raw === "prepaid" ? "api" : "subscription", detected: true, rawType: raw };
+    // is a subscription, because over-claiming that a number is real money
+    // is the worse error — refined to "subscription-extra" when the account
+    // can spill into usage credits, which changes what the figures may mean
+    // without making any of them a measurement.
+    const mode: BillingMode =
+      raw === "prepaid"
+        ? "api"
+        : account?.hasExtraUsageEnabled === true
+          ? "subscription-extra"
+          : "subscription";
+    return { mode, detected: true, rawType: raw };
   } catch {
     return { mode: "subscription", detected: false, rawType: null };
   }
@@ -51,6 +68,18 @@ export function billingCopy(info: BillingInfo): { label: string; detail: string 
         "Modelog computes these figures from published list rates, so they should " +
         "track your actual spend closely — but Modelog cannot see your invoice, so " +
         "treat them as a very good estimate rather than a statement of account.",
+    };
+  }
+  if (info.mode === "subscription-extra") {
+    return {
+      label: "Subscription + usage credits",
+      detail:
+        "You are on a subscription with extra usage enabled: once the plan " +
+        "allowance runs out, further usage is billed from usage credits per " +
+        "token. Which turns drew from that pool is not recorded in the logs " +
+        "Modelog reads, so it cannot split estimated from actually-billed " +
+        "usage — every figure remains an estimate at API list rates, and the " +
+        "totals are not a bill.",
     };
   }
   return {

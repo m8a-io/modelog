@@ -285,6 +285,10 @@ export function parseCodexChunk(text: string, file: string, startLine = 0): Pars
       speed: group.serviceTierAtStart,
       // No Codex equivalent observed.
       inferenceGeo: null,
+      // OpenAI's service tier rides in `speed` above (same modifier table,
+      // its own value names). These two are the Anthropic-reported fields.
+      serviceTier: null,
+      fallbackCredit: null,
       entrypoint,
       isSidechain,
       captureVersion: CAPTURE_VERSION,

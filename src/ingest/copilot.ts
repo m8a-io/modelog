@@ -311,6 +311,8 @@ export function parseCopilotChunk(
       // by Copilot, even for an Anthropic model.
       speed: null,
       inferenceGeo: null,
+      serviceTier: null,
+      fallbackCredit: null,
       // Copilot's closest analogue of an entrypoint: which agent surface made
       // the call. `backgroundTodoAgent` is traffic the developer did not
       // initiate, which is a confound Claude Code has no equivalent of.

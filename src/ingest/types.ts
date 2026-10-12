@@ -74,6 +74,23 @@ export interface Turn {
   inferenceGeo: string | null;
 
   /**
+   * Anthropic's per-turn `usage.service_tier` ("standard" on everything
+   * observed so far). A third pricing modifier with the same fail-closed
+   * rule as the two above. Distinct from Codex's OpenAI service tier, which
+   * rides in `speed` — same role, different vendor vocabulary (issue #12).
+   */
+  serviceTier: string | null;
+
+  /**
+   * Raw JSON text of `usage.fallback_credit` when non-null — the slot
+   * Anthropic built for marking a turn billed from the usage-credit pool.
+   * Observed only as null so far, so its shape is unknown: captured
+   * verbatim for the day it populates, displayed nowhere, priced never
+   * (issue #12).
+   */
+  fallbackCredit: string | null;
+
+  /**
    * Which surface of the tool produced the turn — `claude-vscode` for the VS
    * Code extension, a different value for the CLI. Same tool, same billing,
    * same units, so segmenting on it is tier-2 comparable (PRD §4.5). Null

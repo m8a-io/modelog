@@ -171,3 +171,25 @@ test("a record without message.id gets a null identity, which exempts it from de
   assert.equal(turns[0]!.messageId, null);
   assert.equal(turns[0]!.requestId, null);
 });
+
+test("captures service_tier and preserves an unknown-shaped fallback_credit verbatim", () => {
+  const withTier = parseChunk(
+    assistant({}, { service_tier: "standard", fallback_credit: null }) + "\n",
+    "f.jsonl",
+  );
+  assert.equal(withTier.turns[0]!.serviceTier, "standard");
+  // null is "not drawn from the credit pool" (or predates the field) — a gap.
+  assert.equal(withTier.turns[0]!.fallbackCredit, null);
+
+  // The populated shape is unknown until Anthropic ships one; whatever it is
+  // must survive ingest byte-for-byte rather than being coerced to a guess.
+  const populated = parseChunk(
+    assistant({}, { fallback_credit: { pool: "extra", usd: 0.12 } }) + "\n",
+    "f.jsonl",
+  );
+  assert.equal(populated.turns[0]!.fallbackCredit, '{"pool":"extra","usd":0.12}');
+
+  const absent = parseChunk(assistant() + "\n", "f.jsonl");
+  assert.equal(absent.turns[0]!.serviceTier, null);
+  assert.equal(absent.turns[0]!.fallbackCredit, null);
+});

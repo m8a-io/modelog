@@ -270,6 +270,8 @@ export function parseCopilotCliChunk(text: string, file: string, startLine = 0):
       // brokered by Copilot.
       speed: null,
       inferenceGeo: null,
+      serviceTier: null,
+      fallbackCredit: null,
       entrypoint,
       // Copilot CLI has a `--fleet` parallel-subagent mode this adapter has
       // not captured a session from — a known gap, not a measured `false`.
