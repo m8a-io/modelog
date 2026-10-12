@@ -299,3 +299,77 @@ test("the two units have no conversion function, which is what forbids a cross-s
   const src = await readFile("src/metrics/cost.ts", "utf8");
   assert.doesNotMatch(src, /aiu_nano.*=>.*usd_micro|toUsdMicro|toCredits|convertUnit/i);
 });
+
+/**
+ * Haiku 5.5 is the one model on the card priced by prompt length: input-side
+ * tokens over 100,000 reprice EVERY class at 5x (ratio 50000/10000). The
+ * threshold counts cache reads and writes, not just plain input, and output
+ * tokens play no part in crossing it. Verified against the published card
+ * 2026-10-12.
+ */
+test("haiku-5-5 base-tier rates are the standard multipliers on $0.10 input", () => {
+  const h = table.rates.get("claude-haiku-5-5")!;
+  assert.equal(h.input, 100_000);       // $0.10
+  assert.equal(h.output, 500_000);      // $0.50
+  assert.equal(h.cacheRead, 10_000);    // 0.1x — no per-model override
+  assert.equal(h.cacheWrite5m, 125_000);
+  assert.equal(h.cacheWrite1h, 200_000);
+});
+
+test("a haiku-5-5 prompt at exactly the threshold stays on base pricing", () => {
+  const c = turnCostMicro(
+    turn({ model: "claude-haiku-5-5", inputTokens: 100_000 }),
+    table,
+  )!;
+  assert.equal(c, 10_000); // 100K tokens at $0.10/M = $0.01 — "over", not "at"
+});
+
+test("one token over the threshold reprices every class at 5x", () => {
+  const base = turnCostMicro(
+    turn({ model: "claude-haiku-5-5", inputTokens: 100_000 }),
+    table,
+  )!;
+  const over = turnCostMicro(
+    turn({ model: "claude-haiku-5-5", inputTokens: 200_000 }),
+    table,
+  )!;
+  // 2x the tokens at 5x the rate: 10x the sub-threshold cost.
+  assert.equal(over, base * 10);
+
+  // Output reprices too, even though it never counts toward the threshold.
+  const outputUnder = turnCostMicro(
+    turn({ model: "claude-haiku-5-5", inputTokens: 1_000, outputTokens: 1_000_000 }),
+    table,
+  )!;
+  const outputOver = turnCostMicro(
+    turn({ model: "claude-haiku-5-5", inputTokens: 200_000, outputTokens: 1_000_000 }),
+    table,
+  )!;
+  assert.equal(outputUnder, 100 + 500_000);            // $0.50/M output at base
+  assert.equal(outputOver, 100_000 + 2_500_000);       // $2.50/M output over
+});
+
+test("cache reads and writes count toward the haiku-5-5 threshold", () => {
+  // 1K plain input, 100K cache reads: 101K prompt tokens — over, per the
+  // card's rule that a cache hit does not keep a request under the line.
+  const c = turnCostMicro(
+    turn({ model: "claude-haiku-5-5", inputTokens: 1_000, cacheReadTokens: 100_000 }),
+    table,
+  )!;
+  assert.equal(c, 1_000 * 0.5 + 100_000 * 0.05); // 5x rates: $0.50/M and $0.05/M
+});
+
+test("the geo modifier stacks on top of the long-context tier", () => {
+  const c = turnCostMicro(
+    turn({ model: "claude-haiku-5-5", inputTokens: 200_000, inferenceGeo: "us" }),
+    table,
+  )!;
+  assert.equal(c, 110_000); // 200K x $0.50/M x 1.1 = $0.11
+});
+
+test("models without a tier are untouched by prompt length", () => {
+  const small = turnCostMicro(turn({ inputTokens: 1_000 }), table)!;
+  const huge = turnCostMicro(turn({ inputTokens: 900_000 }), table)!;
+  // Sonnet 5 prices a 900K prompt at the same per-token rate as a 1K one.
+  assert.equal(huge, small * 900);
+});
