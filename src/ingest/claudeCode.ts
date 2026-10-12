@@ -163,6 +163,10 @@ function toTurn(
     iterations: Array.isArray(usage.iterations) ? usage.iterations.length : 1,
     speed: typeof usage.speed === "string" ? usage.speed : null,
     inferenceGeo: typeof usage.inference_geo === "string" ? usage.inference_geo : null,
+    serviceTier: typeof usage.service_tier === "string" ? usage.service_tier : null,
+    // Shape unknown until Anthropic populates it — serialized verbatim, so
+    // whatever it turns out to be survives ingest unmangled.
+    fallbackCredit: usage.fallback_credit == null ? null : JSON.stringify(usage.fallback_credit),
     entrypoint: typeof rec.entrypoint === "string" ? rec.entrypoint : null,
     isSidechain: rec.isSidechain === true,
     captureVersion: CAPTURE_VERSION,

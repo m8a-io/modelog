@@ -13,9 +13,15 @@ import type { Turn } from "./types.ts";
  * It says Modelog did not look, not that the log had a value. Pricing is
  * unaffected: an absent `speed` or `inference_geo` still means unmodified.
  */
-export const CAPTURE_VERSION = 2;
+export const CAPTURE_VERSION = 3;
 
-export type CapturedField = "entrypoint" | "isSidechain" | "speed" | "inferenceGeo";
+export type CapturedField =
+  | "entrypoint"
+  | "isSidechain"
+  | "speed"
+  | "inferenceGeo"
+  | "serviceTier"
+  | "fallbackCredit";
 
 /** The capture version at which each field started being recorded. */
 const CAPTURED_SINCE: Readonly<Record<CapturedField, number>> = {
@@ -23,6 +29,8 @@ const CAPTURED_SINCE: Readonly<Record<CapturedField, number>> = {
   isSidechain: 2,
   speed: 2,
   inferenceGeo: 2,
+  serviceTier: 3,
+  fallbackCredit: 3,
 };
 
 export const CAPTURED_FIELDS = Object.keys(CAPTURED_SINCE).sort() as CapturedField[];

@@ -29,6 +29,10 @@
       "us": 11000,
       "not_available": 10000,
       "": 10000
+    },
+    "$service_tier_comment": "Anthropic's own per-turn usage.service_tier (distinct from Codex's OpenAI tier, which rides in the speed table above). Only \"standard\" has been observed on real records (issue #12). The card's Batch API is a confirmed 0.5x, but the wire value this field would carry for a batched request is unconfirmed against a real log, so it is deliberately absent: a batch turn must price as unavailable, not at double its real cost.",
+    "service_tier": {
+      "standard": 10000
     }
   },
 

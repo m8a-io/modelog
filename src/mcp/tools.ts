@@ -270,6 +270,14 @@ function costNotes(
     );
   }
 
+  if (ctx.billing.mode === "subscription-extra") {
+    notes.push(
+      "Billing mode is subscription with extra usage enabled. Some of this usage " +
+        "may have billed from usage credits, but which turns did is not recorded " +
+        "on disk — these costs are estimates at API list rates, not a bill.",
+    );
+  }
+
   // Fires only when the range actually reaches behind the rate table's
   // effective date, which is exactly when the pinning distorts a comparison.
   if (range.from < Date.parse(ctx.table.effectiveDate)) {

@@ -23,6 +23,7 @@ function turn(p: Partial<Turn>): Turn {
     cacheWrite1hTokens: 0, outputTokens: 0, thinkingTokens: 0,
     iterations: 1, entrypoint: "claude-vscode", isSidechain: false, captureVersion: 2,
     speed: null, inferenceGeo: null,
+    serviceTier: null, fallbackCredit: null,
     source: "claude-code", costNanoAiu: null, tokenBreakdown: "reported",
     cwd: null, gitBranch: null, sourceFile: "f",
     ...p,
@@ -372,4 +373,23 @@ test("models without a tier are untouched by prompt length", () => {
   const huge = turnCostMicro(turn({ inputTokens: 900_000 }), table)!;
   // Sonnet 5 prices a 900K prompt at the same per-token rate as a 1K one.
   assert.equal(huge, small * 900);
+});
+
+test("service_tier 'standard' prices at exactly 1x", () => {
+  const plain = turnCostMicro(turn({ outputTokens: 1_000_000 }), table)!;
+  const tiered = turnCostMicro(
+    turn({ outputTokens: 1_000_000, serviceTier: "standard" }),
+    table,
+  )!;
+  assert.equal(tiered, plain);
+});
+
+test("an unrecognised service_tier fails closed to an unavailable cost", () => {
+  // The card's Batch API discount is real, but the wire value this field
+  // carries for a batched request is unconfirmed — pricing it at standard
+  // rates would report double its real cost, so null is the honest answer.
+  assert.equal(
+    turnCostMicro(turn({ outputTokens: 1_000_000, serviceTier: "batch" }), table),
+    null,
+  );
 });

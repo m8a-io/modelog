@@ -146,6 +146,8 @@ export function readTurns(db: any): Turn[] {
     iterations: r.iterations,
     speed: r.speed ?? null,
     inferenceGeo: r.inference_geo ?? null,
+    serviceTier: r.service_tier ?? null,
+    fallbackCredit: r.fallback_credit ?? null,
     entrypoint: r.entrypoint ?? null,
     isSidechain: r.is_sidechain === 1,
     captureVersion: r.capture_version,

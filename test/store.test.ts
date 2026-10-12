@@ -38,6 +38,7 @@ function turn(p: Partial<Turn> = {}): Turn {
     cacheWrite1hTokens: 4, outputTokens: 5, thinkingTokens: 6,
     iterations: 1, entrypoint: "claude-vscode", isSidechain: false, captureVersion: 2,
     speed: "standard", inferenceGeo: "not_available",
+    serviceTier: null, fallbackCredit: null,
     source: "claude-code", costNanoAiu: null, tokenBreakdown: "reported",
     cwd: "/w", gitBranch: "main", sourceFile: "f.jsonl",
     ...p,
@@ -123,9 +124,9 @@ test("an existing pre-migration database gains the columns", { skip: !sqlite }, 
     assert.deepEqual(
       [...store.migratedColumns].sort(),
       [
-        "capture_version", "cost_nano_aiu", "entrypoint", "inference_geo",
-        "is_sidechain", "message_id", "request_id", "source", "speed",
-        "token_breakdown",
+        "capture_version", "cost_nano_aiu", "entrypoint", "fallback_credit",
+        "inference_geo", "is_sidechain", "message_id", "request_id",
+        "service_tier", "source", "speed", "token_breakdown",
       ],
     );
 
@@ -308,7 +309,10 @@ test("migrating to message_id wipes claude-code rows, keeps other sources, drops
     old.close();
 
     const store = new SqliteStore(sqlite, t.path);
-    assert.deepEqual([...store.migratedColumns].sort(), ["message_id", "request_id"]);
+    assert.deepEqual(
+      [...store.migratedColumns].sort(),
+      ["fallback_credit", "message_id", "request_id", "service_tier"],
+    );
 
     const remaining = store.allTurns();
     assert.equal(remaining.length, 1);
