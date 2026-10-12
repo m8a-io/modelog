@@ -28,7 +28,21 @@ export interface PricingFile {
    * A value missing from a table is unknown, not neutral.
    */
   modifiers: Record<string, Record<string, number>>;
-  models: Record<string, { input: number; output: number; cache_read?: number }>;
+  models: Record<
+    string,
+    {
+      input: number;
+      output: number;
+      cache_read?: number;
+      /**
+       * Prompt-length tier (schema 3). When the turn's input-side tokens —
+       * input + cache reads + cache writes, per the published card — exceed
+       * the threshold, EVERY rate is multiplied by ratio/ratio_scale, output
+       * included. Only Haiku 5.5 is priced this way on the current card.
+       */
+      long_context?: { threshold_tokens: number; ratio: number };
+    }
+  >;
   unknown_model_policy: string;
   unknown_modifier_policy: string;
 }
@@ -45,6 +59,12 @@ export interface ModelRates {
 export interface RateTable {
   effectiveDate: string;
   rates: Map<string, ModelRates>;
+  /**
+   * Prompt-length tiers by model id. Kept out of ModelRates so that type
+   * stays a flat bag of integer rates — tests iterate its values and assert
+   * every one is an integer micro-dollar figure.
+   */
+  longContext: Map<string, { thresholdTokens: number; ratio: number }>;
   /** Ratio numerators over `ratioScale`, by modifier field then value. */
   modifiers: Map<string, Map<string, number>>;
   ratioScale: number;
@@ -63,13 +83,17 @@ const DATE_SUFFIX = /-\d{8}$/;
  * that does not resolve under that rule stays unknown.
  */
 export function resolveRates(model: string, table: RateTable): ModelRates | null {
-  const exact = table.rates.get(model);
-  if (exact) return exact;
+  const key = resolveRateKey(model, table);
+  return key === null ? null : table.rates.get(key)!;
+}
+
+/** The table key a logged model id resolves to, under the same rule. */
+function resolveRateKey(model: string, table: RateTable): string | null {
+  if (table.rates.has(model)) return model;
 
   if (DATE_SUFFIX.test(model)) {
     const bare = model.replace(DATE_SUFFIX, "");
-    const aliased = table.rates.get(bare);
-    if (aliased) return aliased;
+    if (table.rates.has(bare)) return bare;
   }
   return null;
 }
@@ -91,6 +115,7 @@ export function buildRateTable(file: PricingFile): RateTable {
   const scale = file.ratio_scale;
   const m = file.cache_multipliers;
   const rates = new Map<string, ModelRates>();
+  const longContext = new Map<string, { thresholdTokens: number; ratio: number }>();
 
   for (const [model, r] of Object.entries(file.models)) {
     const inputMicro = Math.round(r.input * MICRO);
@@ -101,6 +126,12 @@ export function buildRateTable(file: PricingFile): RateTable {
       cacheWrite1h: ratio(inputMicro, m.cache_write_1h, scale),
       output: Math.round(r.output * MICRO),
     });
+    if (r.long_context) {
+      longContext.set(model, {
+        thresholdTokens: r.long_context.threshold_tokens,
+        ratio: r.long_context.ratio,
+      });
+    }
   }
 
   const modifiers = new Map<string, Map<string, number>>();
@@ -112,7 +143,7 @@ export function buildRateTable(file: PricingFile): RateTable {
     modifiers.set(field, byValue);
   }
 
-  return { effectiveDate: file.effective_date, rates, modifiers, ratioScale: scale };
+  return { effectiveDate: file.effective_date, rates, longContext, modifiers, ratioScale: scale };
 }
 
 function ratio(value: number, numerator: number, scale: number): number {
@@ -157,11 +188,29 @@ function modifierNumerator(turn: Turn, table: RateTable): number | null {
  * number, different door.
  */
 export function turnCostMicro(turn: Turn, table: RateTable): number | null {
-  const r = resolveRates(turn.model, table);
-  if (!r) return null;
+  const key = resolveRateKey(turn.model, table);
+  if (key === null) return null;
+  const r = table.rates.get(key)!;
 
-  const mod = modifierNumerator(turn, table);
+  let mod = modifierNumerator(turn, table);
   if (mod === null) return null;
+
+  // Prompt-length tier (Haiku 5.5 on the current card). The threshold counts
+  // the request's input-side tokens — cache reads and writes included, per
+  // the published card — and a crossing reprices EVERY class, output too.
+  // Folded into the modifier numerator because the card stacks it the same
+  // way: the inference_geo multiplier applies on top of the tier prices.
+  const lc = table.longContext.get(key);
+  if (lc) {
+    const promptTokens =
+      turn.inputTokens +
+      turn.cacheReadTokens +
+      turn.cacheWrite5mTokens +
+      turn.cacheWrite1hTokens;
+    if (promptTokens > lc.thresholdTokens) {
+      mod = (mod * lc.ratio) / table.ratioScale;
+    }
+  }
 
   // Accumulate the numerator, divide once. Thinking tokens are already inside
   // outputTokens and are deliberately not added again.

@@ -1,9 +1,10 @@
 {
   "$comment": "Modelog rate table. Base rates are USD per 1M tokens, transcribed from the published card. Every MULTIPLIER is an integer ratio over ratio_scale - never a decimal - because chained float multipliers produce artefacts at table-build time (3.0 * 0.1 = 0.30000000000000004). See PRD 8.2.",
-  "schema_version": 2,
+  "schema_version": 3,
+  "$schema_version_comment": "Schema 3 adds the optional per-model long_context block. A model carrying one is priced by prompt length: a request whose INPUT-SIDE tokens (input + cache reads + cache writes - the card counts cache traffic toward the threshold) exceed threshold_tokens pays ratio/ratio_scale times every rate, output included, stacking multiplicatively with the modifiers table. Per the published card only Haiku 5.5 is priced this way; every other 4.6+ model includes the full 1M window at standard pricing.",
   "effective_date": "2026-09-27",
-  "$effective_date_comment": "The OLDER of this file's two verification dates, by design: this field only drives a staleness check, and the Anthropic entries (verified 2026-09-27) are the ones actually that old. Using the OpenAI entries' later date (2026-10-09) here would overstate how recently the Anthropic entries were checked.",
-  "source": "Anthropic first-party API list pricing (platform.claude.com/docs/en/about-claude/pricing, verified 2026-09-27) and OpenAI first-party API list pricing (developers.openai.com/api/docs/pricing, developers.openai.com/api/docs/models/gpt-6.1-sol, developers.openai.com/api/docs/models/gpt-6-astra, verified 2026-10-09)",
+  "$effective_date_comment": "The OLDEST of this file's verification dates, by design: this field only drives a staleness check, and the original Anthropic entries (verified 2026-09-27) are the ones actually that old. Using a later date here would overstate how recently those entries were checked.",
+  "source": "Anthropic first-party API list pricing (platform.claude.com/docs/en/about-claude/pricing, verified 2026-09-27; claude-haiku-5-5 incl. long-context tier verified 2026-10-12) and OpenAI first-party API list pricing (developers.openai.com/api/docs/pricing, developers.openai.com/api/docs/models/gpt-6.1-sol, developers.openai.com/api/docs/models/gpt-6-astra, verified 2026-10-09)",
   "currency": "USD",
   "unit": "per_1m_tokens",
 
@@ -46,6 +47,7 @@
     "claude-sonnet-4-6": { "input":  3.0, "output": 15.0 },
     "claude-sonnet-4-5": { "input":  3.0, "output": 15.0 },
     "claude-haiku-4-5":  { "input":  1.0, "output":  5.0 },
+    "claude-haiku-5-5":  { "input":  0.10, "output": 0.50, "long_context": { "threshold_tokens": 100000, "ratio": 50000 } },
 
     "gpt-6-astra":  { "input": 10.0, "output": 50.0, "cache_read": 1000 },
     "gpt-6.1-sol":  { "input":  2.0, "output": 10.0, "cache_read":  500 },
