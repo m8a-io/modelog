@@ -2,6 +2,18 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — One turn per API call
+
+### Fixed
+
+- **Claude Code turn counts and costs were inflated roughly 3×.** Claude Code writes one log record *per content block* — a single API call with text plus several tool calls appears as many records, each repeating the same token counts — and Modelog counted and priced every copy. Turns now deduplicate on the API message id, verified to the micro-dollar against Claude Code's own internal cost accounting on a real seven-hour session (290 API calls, $61.33 — where the old counting showed 710 turns and $182.23). **On first launch after this update, stored Claude Code history is rebuilt from the logs and the dashboard will show fewer turns and lower costs: that is the inflation leaving, not data loss.** History whose log files Claude Code has since deleted cannot be rebuilt and is dropped rather than kept at a figure known to be wrong.
+
+### Added
+
+- **`claude-haiku-5-5` pricing, including its prompt-length tier** — the only Claude model priced by prompt length: a request over 100,000 input-side tokens (cache reads and writes count toward the threshold) pays exactly 5× on every token class, output included. Without the tier a long-context Haiku turn would show a fifth of its real cost.
+- **A third billing state: subscription + usage credits.** When a Claude subscription has extra usage enabled (`hasExtraUsageEnabled`), the dashboard and MCP tools now say so, including the honest limitation: the logs record nothing about *which* turns billed from the credit pool, so every figure remains an estimate at API list rates and no estimated/billed split exists.
+- **Per-turn capture of `service_tier` and `fallback_credit`** — Anthropic's slots for request tiering and credit-pool billing. `service_tier` is a fail-closed pricing modifier ("standard" prices at 1×; an unrecognised tier shows cost-unavailable rather than a wrong number). `fallback_credit` has only ever been observed as null; a populated value is stored verbatim for the day Anthropic ships one.
+
 ## [0.3.0] — GitHub Copilot CLI support
 
 ### Added
