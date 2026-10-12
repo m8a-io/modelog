@@ -24,6 +24,20 @@ export type TokenBreakdown = "reported" | "solved" | "unknown";
 export interface Turn {
   /** Source record uuid. Primary key — makes re-ingest idempotent. */
   uuid: string;
+
+  /**
+   * The API message id shared by every record the source writes for one API
+   * call. Claude Code writes one record *per content block*, each repeating
+   * the whole usage object, so rows agreeing on (source, messageId) are the
+   * same spend counted again — the store keeps exactly one (issue #11).
+   * Null where the source has no such id, which also exempts the row from
+   * dedup: null marks "no identity", never "same identity".
+   */
+  messageId: string | null;
+
+  /** Provider request id, captured alongside messageId for diagnosis only. */
+  requestId: string | null;
+
   sessionId: string;
   /** Epoch milliseconds. */
   ts: number;

@@ -290,6 +290,10 @@ export function parseCopilotChunk(
       // duplicating. Copilot's own `responseId` cannot serve here: two
       // requests in one real log share one.
       uuid: `${sid}:${key}`,
+      // This adapter already aggregates all of a request's records into one
+      // turn, so there is no per-block fan-out to collapse (issue #11).
+      messageId: null,
+      requestId: null,
       sessionId: sid,
       ts: reqs[0]!.ts,
       model,

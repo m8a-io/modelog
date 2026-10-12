@@ -25,6 +25,8 @@ export const BASE_TS = Date.parse("2026-09-01T09:00:00.000Z");
 
 export function turn(p: Partial<Turn> & { uuid: string }): Turn {
   return {
+    messageId: null,
+    requestId: null,
     sessionId: "s1",
     ts: BASE_TS,
     model: "claude-sonnet-5",

@@ -156,3 +156,18 @@ test("isSidechain defaults to false and is never coerced from a truthy value", (
   const odd = parseChunk(assistant({ isSidechain: "yes" }) + "\n", "f.jsonl");
   assert.equal(odd.turns[0]!.isSidechain, false);
 });
+
+test("captures the API message id and request id — the identity dedup keys on", () => {
+  const rec = JSON.parse(assistant());
+  rec.message.id = "msg_01AbC";
+  rec.requestId = "req_011XyZ";
+  const { turns } = parseChunk(JSON.stringify(rec) + "\n", "f.jsonl");
+  assert.equal(turns[0]!.messageId, "msg_01AbC");
+  assert.equal(turns[0]!.requestId, "req_011XyZ");
+});
+
+test("a record without message.id gets a null identity, which exempts it from dedup", () => {
+  const { turns } = parseChunk(assistant() + "\n", "f.jsonl");
+  assert.equal(turns[0]!.messageId, null);
+  assert.equal(turns[0]!.requestId, null);
+});

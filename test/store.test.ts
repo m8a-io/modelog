@@ -4,9 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteStore, loadSqlite, migrate } from "../src/store/sqliteStore.ts";
+import { FileStore } from "../src/store/fileStore.ts";
 import { SCHEMA_VERSION } from "../src/store/store.ts";
 import type { Turn } from "../src/ingest/types.ts";
-import { uncapturedFields } from "../src/ingest/capture.ts";
 
 const sqlite = await loadSqlite();
 
@@ -32,7 +32,8 @@ CREATE TABLE cursors (
 
 function turn(p: Partial<Turn> = {}): Turn {
   return {
-    uuid: "u1", sessionId: "s1", ts: 1_000, model: "claude-sonnet-5",
+    uuid: "u1", messageId: null, requestId: null,
+    sessionId: "s1", ts: 1_000, model: "claude-sonnet-5",
     inputTokens: 1, cacheReadTokens: 2, cacheWrite5mTokens: 3,
     cacheWrite1hTokens: 4, outputTokens: 5, thinkingTokens: 6,
     iterations: 1, entrypoint: "claude-vscode", isSidechain: false, captureVersion: 2,
@@ -123,34 +124,20 @@ test("an existing pre-migration database gains the columns", { skip: !sqlite }, 
       [...store.migratedColumns].sort(),
       [
         "capture_version", "cost_nano_aiu", "entrypoint", "inference_geo",
-        "is_sidechain", "source", "speed", "token_breakdown",
+        "is_sidechain", "message_id", "request_id", "source", "speed",
+        "token_breakdown",
       ],
     );
 
-    // The pre-existing row is readable, with the new fields as gaps.
-    const rows = store.allTurns();
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0]!.uuid, "old");
-    assert.equal(rows[0]!.entrypoint, null);
-    assert.equal(rows[0]!.isSidechain, false);
-    // A null modifier is "not recorded", which prices as unmodified — distinct
-    // from a recorded value we do not recognise, which prices as null.
-    assert.equal(rows[0]!.speed, null);
-    assert.equal(rows[0]!.inferenceGeo, null);
-    // Unlike isSidechain, this default is a fact: Claude Code is the only
-    // adapter that has ever written to this store, so a pre-existing row IS
-    // a Claude Code turn and needs no capture-version caveat.
-    assert.equal(rows[0]!.source, "claude-code");
-    // No measured cost, and token classes the source reported outright.
-    assert.equal(rows[0]!.costNanoAiu, null);
-    assert.equal(rows[0]!.tokenBreakdown, null);
-
-    // The false above is a default, not an observation; the row says so.
-    assert.equal(rows[0]!.captureVersion, 1);
-    assert.deepEqual(uncapturedFields(rows[0]!), ["entrypoint", "inferenceGeo", "isSidechain", "speed"]);
+    // The pre-existing row was a Claude Code row (the only adapter that ever
+    // wrote to a v0 store), stored before message_id existed — a per-block
+    // copy with no way left to collapse it (issue #11). The migration wipes
+    // it rather than keep a figure known to be inflated; the dropped cursor
+    // below forces the rescan that rebuilds it from the log.
+    assert.equal(store.allTurns().length, 0);
 
     // The cursor must be gone, or the scanner would skip the unchanged file
-    // and the newly added columns would never be backfilled.
+    // and the wiped rows would never be rebuilt.
     assert.equal(store.getCursor("f.jsonl"), undefined);
     store.close();
   } finally {
@@ -219,6 +206,143 @@ test("a turn whose cache-write split could not be solved says so, rather than re
     // The cost is still known — it was measured, not derived from the split.
     assert.equal(row!.costNanoAiu, 0);
     store.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
+/**
+ * Issue #11: Claude Code writes one record per content block, each repeating
+ * the same usage object under a fresh record uuid. Rows that agree on
+ * (source, message_id) are one API call counted again; the store keeps one.
+ */
+test("rows sharing (source, message_id) collapse to one row", { skip: !sqlite }, () => {
+  const t = tmp();
+  try {
+    const store = new SqliteStore(sqlite, t.path);
+    store.upsertTurns([
+      turn({ uuid: "block-1", messageId: "msg_1", requestId: "req_1" }),
+      turn({ uuid: "block-2", messageId: "msg_1", requestId: "req_1" }),
+      turn({ uuid: "block-3", messageId: "msg_1", requestId: "req_1" }),
+    ]);
+    assert.equal(store.turnCount(), 1);
+    // Last seen wins — deterministic, and the copies carry identical usage.
+    assert.equal(store.allTurns()[0]!.uuid, "block-3");
+
+    // A full rescan re-ingests the same records; still exactly one row.
+    store.upsertTurns([
+      turn({ uuid: "block-1", messageId: "msg_1", requestId: "req_1" }),
+      turn({ uuid: "block-2", messageId: "msg_1", requestId: "req_1" }),
+    ]);
+    assert.equal(store.turnCount(), 1);
+    store.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("null message ids never collapse — no identity is not the same identity", { skip: !sqlite }, () => {
+  const t = tmp();
+  try {
+    const store = new SqliteStore(sqlite, t.path);
+    store.upsertTurns([
+      turn({ uuid: "a", messageId: null }),
+      turn({ uuid: "b", messageId: null }),
+      // Same message id under a different source must also survive: one
+      // vendor's id scheme can never collapse another's rows.
+      turn({ uuid: "c", messageId: "msg_1", source: "claude-code" }),
+      turn({ uuid: "d", messageId: "msg_1", source: "copilot", costNanoAiu: 1, speed: null, inferenceGeo: null }),
+    ]);
+    assert.equal(store.turnCount(), 4);
+    store.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
+/**
+ * The `turns` schema as v0.3.0 shipped it (schema version 4) — everything
+ * current except message_id/request_id. Kept verbatim so the migration is
+ * exercised against the shape actually on disk in an existing install.
+ */
+const SCHEMA_V4 = `
+CREATE TABLE turns (
+  uuid TEXT PRIMARY KEY, session_id TEXT NOT NULL, ts INTEGER NOT NULL,
+  model TEXT NOT NULL, input_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL, cache_write_5m_tokens INTEGER NOT NULL,
+  cache_write_1h_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+  thinking_tokens INTEGER NOT NULL, iterations INTEGER NOT NULL,
+  entrypoint TEXT, is_sidechain INTEGER NOT NULL DEFAULT 0,
+  capture_version INTEGER NOT NULL DEFAULT 1, speed TEXT, inference_geo TEXT,
+  source TEXT NOT NULL DEFAULT 'claude-code', cost_nano_aiu INTEGER,
+  token_breakdown TEXT, cwd TEXT, git_branch TEXT, source_file TEXT NOT NULL
+);
+CREATE TABLE cursors (
+  path TEXT PRIMARY KEY, size INTEGER NOT NULL,
+  mtime_ms INTEGER NOT NULL, byte_offset INTEGER NOT NULL
+);
+PRAGMA user_version = 4;
+`;
+
+test("migrating to message_id wipes claude-code rows, keeps other sources, drops cursors", { skip: !sqlite }, () => {
+  const t = tmp();
+  try {
+    const { DatabaseSync } = sqlite;
+    const old = new DatabaseSync(t.path);
+    old.exec(SCHEMA_V4);
+    const ins = old.prepare(`
+      INSERT INTO turns (uuid, session_id, ts, model, input_tokens,
+        cache_read_tokens, cache_write_5m_tokens, cache_write_1h_tokens,
+        output_tokens, thinking_tokens, iterations, capture_version, source,
+        source_file)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `);
+    // Pre-message_id Claude Code rows are per-block copies that can no longer
+    // be collapsed — the id was never stored — so the migration removes them
+    // and the forced rescan rebuilds from the logs. Copilot rows were never
+    // fanned out per block and must survive untouched.
+    ins.run("cc-1", "s", 1, "claude-sonnet-5", 1, 2, 3, 4, 5, 0, 1, 2, "claude-code", "f.jsonl");
+    ins.run("cc-2", "s", 2, "claude-sonnet-5", 1, 2, 3, 4, 5, 0, 1, 2, "claude-code", "f.jsonl");
+    ins.run("cop-1", "s", 3, "claude-sonnet-5", 1, 2, 3, 4, 5, 0, 1, 2, "copilot", "c.jsonl");
+    old.prepare("INSERT INTO cursors VALUES ('f.jsonl', 500, 900, 500)").run();
+    old.close();
+
+    const store = new SqliteStore(sqlite, t.path);
+    assert.deepEqual([...store.migratedColumns].sort(), ["message_id", "request_id"]);
+
+    const remaining = store.allTurns();
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0]!.uuid, "cop-1");
+    assert.equal(remaining[0]!.source, "copilot");
+    // The cursor must be gone so the rescan actually rebuilds the wiped rows.
+    assert.equal(store.getCursor("f.jsonl"), undefined);
+    store.close();
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("the file store collapses per-block copies the same way, across a reload", () => {
+  const t = tmp();
+  try {
+    const path = join(t.dir, "cache.json");
+    const store = new FileStore(path);
+    store.upsertTurns([
+      turn({ uuid: "block-1", messageId: "msg_1" }),
+      turn({ uuid: "block-2", messageId: "msg_1" }),
+      turn({ uuid: "a", messageId: null }),
+      turn({ uuid: "b", messageId: null }),
+    ]);
+    assert.equal(store.turnCount(), 3);
+    store.close();
+
+    // The collapse must survive persistence, and re-ingesting the same
+    // records after a reload must not resurrect a copy.
+    const reopened = new FileStore(path);
+    assert.equal(reopened.turnCount(), 3);
+    reopened.upsertTurns([turn({ uuid: "block-1", messageId: "msg_1" })]);
+    assert.equal(reopened.turnCount(), 3);
+    reopened.close();
   } finally {
     t.cleanup();
   }

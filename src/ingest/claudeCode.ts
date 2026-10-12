@@ -145,6 +145,12 @@ function toTurn(
 
   return {
     uuid,
+    // One API call fans out into one record per content block, every copy
+    // carrying the same usage object. message.id is the call's identity; the
+    // store collapses rows sharing it (issue #11). Absent on old records —
+    // null, which disables dedup for that row rather than inventing a key.
+    messageId: typeof message.id === "string" ? message.id : null,
+    requestId: typeof rec.requestId === "string" ? rec.requestId : null,
     sessionId,
     ts,
     model,
