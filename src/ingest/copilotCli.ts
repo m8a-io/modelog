@@ -252,6 +252,9 @@ export function parseCopilotCliChunk(text: string, file: string, startLine = 0):
       // Deterministic, so a whole-file re-read upserts over itself rather
       // than duplicating.
       uuid: `${sid}:${interactionId}`,
+      // Aggregated per interaction already — no per-block fan-out (issue #11).
+      messageId: null,
+      requestId: null,
       sessionId: sid,
       ts: group.ts,
       model: records[0]!.model,

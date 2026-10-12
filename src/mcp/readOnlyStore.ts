@@ -132,6 +132,8 @@ export function readTurns(db: any): Turn[] {
   const rows = db.prepare("SELECT * FROM turns ORDER BY ts").all();
   return rows.map((r: any) => ({
     uuid: r.uuid,
+    messageId: r.message_id ?? null,
+    requestId: r.request_id ?? null,
     sessionId: r.session_id,
     ts: r.ts,
     model: r.model,

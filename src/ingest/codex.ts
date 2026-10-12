@@ -256,6 +256,9 @@ export function parseCodexChunk(text: string, file: string, startLine = 0): Pars
 
     turns.push({
       uuid: turnId,
+      // Aggregated per turn already — no per-block fan-out (issue #11).
+      messageId: null,
+      requestId: null,
       sessionId,
       ts: first.ts,
       model,

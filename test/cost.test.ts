@@ -17,7 +17,8 @@ const table = buildRateTable(pricing);
 
 function turn(p: Partial<Turn>): Turn {
   return {
-    uuid: "u", sessionId: "s", ts: 0, model: "claude-sonnet-5",
+    uuid: "u", messageId: null, requestId: null,
+    sessionId: "s", ts: 0, model: "claude-sonnet-5",
     inputTokens: 0, cacheReadTokens: 0, cacheWrite5mTokens: 0,
     cacheWrite1hTokens: 0, outputTokens: 0, thinkingTokens: 0,
     iterations: 1, entrypoint: "claude-vscode", isSidechain: false, captureVersion: 2,

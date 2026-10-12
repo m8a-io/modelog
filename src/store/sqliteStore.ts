@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS turns (
   source                TEXT    NOT NULL DEFAULT 'claude-code',
   cost_nano_aiu         INTEGER,
   token_breakdown       TEXT,
+  message_id            TEXT,
+  request_id            TEXT,
   cwd                   TEXT,
   git_branch            TEXT,
   source_file           TEXT    NOT NULL
@@ -94,6 +96,8 @@ const ADDED_COLUMNS: ReadonlyArray<{ column: string; ddl: string }> = [
   // cost exists only where the source reports one.
   { column: "cost_nano_aiu", ddl: "ALTER TABLE turns ADD COLUMN cost_nano_aiu INTEGER" },
   { column: "token_breakdown", ddl: "ALTER TABLE turns ADD COLUMN token_breakdown TEXT" },
+  { column: "message_id", ddl: "ALTER TABLE turns ADD COLUMN message_id TEXT" },
+  { column: "request_id", ddl: "ALTER TABLE turns ADD COLUMN request_id TEXT" },
 ];
 
 /**
@@ -117,6 +121,25 @@ export function migrate(db: any): string[] {
   // CREATE TABLE is a no-op, so an index naming a not-yet-ALTERed column
   // fails outright. Ordering is columns first, then indexes.
   db.exec("CREATE INDEX IF NOT EXISTS idx_turns_source ON turns(source)");
+
+  // Rows already in the store when message_id arrives are per-content-block
+  // copies that cannot be collapsed — the id they would collapse on was never
+  // stored (issue #11). Leaving them keeps every Claude Code figure inflated
+  // ~3x, so they go: the store is a rebuildable cache, and the cursor drop
+  // below forces the re-read that rebuilds every row whose log still exists.
+  // Only Claude Code fans out per block; other sources' rows are correct.
+  if (added.includes("message_id")) {
+    db.exec("DELETE FROM turns WHERE source = 'claude-code'");
+  }
+
+  // Partial: NULL means "the source has no call identity", and two unknowns
+  // are not the same call. Scoped by source so one vendor's id scheme can
+  // never collapse another's. INSERT OR REPLACE resolves conflicts on this
+  // index, which is what makes the dedup hold across tail-read chunks.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_turns_source_message " +
+      "ON turns(source, message_id) WHERE message_id IS NOT NULL",
+  );
 
   // Rows that already existed carry the column default, not real data. The
   // scanner skips any file whose size and mtime are unchanged, so it would
@@ -146,15 +169,19 @@ export class SqliteStore implements Store {
   upsertTurns(turns: readonly Turn[]): void {
     if (turns.length === 0) return;
     // INSERT OR REPLACE on the source uuid is what makes a full rescan safe:
-    // re-ingesting the same records can never double-count.
+    // re-ingesting the same records can never double-count. REPLACE also
+    // resolves the (source, message_id) unique index, collapsing the
+    // per-content-block copies Claude Code writes for one API call — the
+    // copies carry identical usage, so which one survives (the last seen)
+    // does not change any figure.
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO turns
         (uuid, session_id, ts, model, input_tokens, cache_read_tokens,
          cache_write_5m_tokens, cache_write_1h_tokens, output_tokens,
          thinking_tokens, iterations, entrypoint, is_sidechain, capture_version,
          speed, inference_geo, source, cost_nano_aiu, token_breakdown,
-         cwd, git_branch, source_file)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         message_id, request_id, cwd, git_branch, source_file)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `);
     this.db.exec("BEGIN");
     try {
@@ -164,7 +191,7 @@ export class SqliteStore implements Store {
           t.cacheWrite5mTokens, t.cacheWrite1hTokens, t.outputTokens,
           t.thinkingTokens, t.iterations, t.entrypoint, t.isSidechain ? 1 : 0,
           t.captureVersion, t.speed, t.inferenceGeo, t.source, t.costNanoAiu,
-          t.tokenBreakdown, t.cwd, t.gitBranch, t.sourceFile,
+          t.tokenBreakdown, t.messageId, t.requestId, t.cwd, t.gitBranch, t.sourceFile,
         );
       }
       this.db.exec("COMMIT");
@@ -213,6 +240,8 @@ export class SqliteStore implements Store {
 function rowToTurn(r: any): Turn {
   return {
     uuid: r.uuid,
+    messageId: r.message_id ?? null,
+    requestId: r.request_id ?? null,
     sessionId: r.session_id,
     ts: r.ts,
     model: r.model,
