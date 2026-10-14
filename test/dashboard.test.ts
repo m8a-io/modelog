@@ -14,7 +14,13 @@ import { ModelogService } from "../src/service.ts";
 
 const FIXTURES = join(import.meta.dirname, "fixtures", "copilot");
 
-function claudeRecord(over: { uuid: string; model: string; ts: string; session?: string }): string {
+function claudeRecord(over: {
+  uuid: string;
+  model: string;
+  ts: string;
+  session?: string;
+  sidechain?: boolean;
+}): string {
   return JSON.stringify({
     type: "assistant",
     uuid: over.uuid,
@@ -23,6 +29,7 @@ function claudeRecord(over: { uuid: string; model: string; ts: string; session?:
     cwd: "/workspace/example",
     gitBranch: "main",
     entrypoint: "claude-vscode",
+    isSidechain: over.sidechain === true,
     message: {
       role: "assistant",
       model: over.model,
@@ -47,21 +54,29 @@ function copilotTree(): string {
   return root;
 }
 
-function claudeTree(models: string[]): string {
+/** A turn spec: a bare model id, or a model plus the sub-agent flag. */
+type ClaudeTurnSpec = string | { model: string; sidechain?: boolean };
+
+function claudeTree(specs: ClaudeTurnSpec[]): string {
   const root = mkdtempSync(join(tmpdir(), "modelog-cc-"));
-  const lines = models.map((model, i) =>
-    claudeRecord({
+  const lines = specs.map((spec, i) => {
+    const s = typeof spec === "string" ? { model: spec } : spec;
+    return claudeRecord({
       uuid: `u${i}`,
-      model,
+      model: s.model,
+      sidechain: s.sidechain,
       // Spread across days so the chart has more than one column.
       ts: new Date(Date.UTC(2026, 8, 20 + (i % 3), 10)).toISOString(),
-    }),
-  );
+    });
+  });
   writeFileSync(join(root, "session.jsonl"), lines.join("\n") + "\n");
   return root;
 }
 
-async function serviceWith(opts: { claude?: string[]; copilot?: boolean }): Promise<ModelogService> {
+async function serviceWith(opts: {
+  claude?: ClaudeTurnSpec[];
+  copilot?: boolean;
+}): Promise<ModelogService> {
   const svc = new ModelogService({
     storageDir: mkdtempSync(join(tmpdir(), "modelog-store-")),
     extensionDir: process.cwd(),
@@ -207,6 +222,89 @@ test("models past the palette fold into one Other bucket rather than repeating a
   assert.equal(folded, 2);
   // And it draws no cost line, because averaging cost across models is meaningless.
   assert.ok(other!.values.every((v) => v === null));
+  svc.dispose();
+});
+
+// --- delegation ---------------------------------------------------------------
+
+test("sub-agent turns are segmented out of the blend, with the share headline", async () => {
+  const svc = await serviceWith({
+    claude: [
+      "claude-sonnet-5",
+      "claude-sonnet-5",
+      { model: "claude-haiku-4-5", sidechain: true },
+      { model: "claude-haiku-4-5", sidechain: true },
+    ],
+  });
+  const d = svc.viewState(null).delegation;
+
+  assert.deepEqual(
+    d.slices.map((s) => s.label),
+    ["Main thread", "Sub-agents"],
+  );
+  const [main, sub] = d.slices;
+  assert.equal(main!.turns, 2);
+  assert.equal(sub!.turns, 2);
+  assert.ok(Math.abs(main!.turnsPct - 50) < 0.01);
+  // Identical usage on a cheaper model: the cost share must come out below
+  // the turn share — that asymmetry is the section's entire point.
+  assert.ok(sub!.costPct < sub!.turnsPct);
+  assert.ok(Math.abs(main!.costPct + sub!.costPct - 100) < 0.01);
+  // Money arrives formatted; the webview computes nothing.
+  assert.match(sub!.costPerTurn, /^\$|^<\$/);
+  assert.match(main!.total, /^\$|^<\$/);
+  assert.match(d.headline!, /^Sub-agents handled 50% of turns for .+ of the cost\.$/);
+  assert.equal(d.note, null);
+  svc.dispose();
+});
+
+test("the delegation trend is the same two-panel chart, keyed by population", async () => {
+  const svc = await serviceWith({
+    claude: [
+      "claude-sonnet-5",
+      "claude-sonnet-5",
+      { model: "claude-haiku-4-5", sidechain: true },
+    ],
+  });
+  const chart = svc.viewState(null).delegation.chart;
+  assert.ok(chart);
+  assert.deepEqual(
+    chart!.series.map((s) => s.model),
+    ["Main thread", "Sub-agents"],
+  );
+  // Hues are fixed per population — identity, never rank.
+  assert.equal(chart!.series[0]!.colorVar, "--vscode-charts-blue");
+  assert.equal(chart!.series[1]!.colorVar, "--vscode-charts-green");
+  for (const s of chart!.series) {
+    assert.equal(s.turns.length, chart!.days.length);
+    assert.equal(s.values.length, chart!.days.length);
+  }
+  svc.dispose();
+});
+
+test("with no sub-agent turns there is no split — a stated absence, not a zero", async () => {
+  const svc = await serviceWith({ claude: ["claude-sonnet-5", "claude-opus-5"] });
+  const d = svc.viewState(null).delegation;
+  assert.deepEqual(d.slices, []);
+  assert.equal(d.headline, null);
+  assert.equal(d.chart, null);
+  assert.equal(d.note, "No sub-agent turns in this range.");
+  svc.dispose();
+});
+
+test("the comparison table says when a model's turns were sub-agent calls", async () => {
+  const svc = await serviceWith({
+    claude: [
+      "claude-sonnet-5",
+      { model: "claude-sonnet-5", sidechain: true },
+      { model: "claude-haiku-4-5", sidechain: true },
+    ],
+  });
+  const rows = svc.viewState(null).rows;
+  // All of Haiku's traffic is sub-agent: without the note it would read as a
+  // model the developer chose for work (PRD §11 Q23).
+  assert.equal(rows.find((r) => r.model === "claude-haiku-4-5")!.sidechainNote, "all sub-agent");
+  assert.equal(rows.find((r) => r.model === "claude-sonnet-5")!.sidechainNote, "1 sub-agent");
   svc.dispose();
 });
 

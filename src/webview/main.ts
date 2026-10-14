@@ -1,4 +1,10 @@
-import type { HostMessage, ViewState, ModelRowView } from "../ui/protocol.ts";
+import type {
+  HostMessage,
+  ViewState,
+  ModelRowView,
+  DelegationView,
+  ChartData,
+} from "../ui/protocol.ts";
 import { renderChart, type ChartHandle } from "./chart.ts";
 
 /**
@@ -25,12 +31,12 @@ const RANGES: Array<[string, number | null]> = [
 ];
 let activeRange: number | null = 30;
 let activeSource = "";
-/** The live chart, disposed before each re-render so ECharts frees its DOM. */
-let chart: ChartHandle | undefined;
+/** The live charts, disposed before each re-render so ECharts frees their DOM. */
+let charts: ChartHandle[] = [];
 
 function render(state: ViewState): void {
-  chart?.dispose();
-  chart = undefined;
+  for (const c of charts) c.dispose();
+  charts = [];
   activeSource = state.activeSource;
   app.replaceChildren();
   app.append(header(state));
@@ -47,12 +53,14 @@ function render(state: ViewState): void {
 
   if (state.chart.days.length > 0) {
     app.append(el("h2", "Cost and turns per day"));
-    const host = el("div", "", "chart");
-    app.append(host);
-    // ECharts measures its container, so it must be in the DOM first.
-    requestAnimationFrame(() => {
-      chart = renderChart(host, state.chart);
-    });
+    mountChart(state.chart);
+  }
+
+  app.append(el("h2", "Delegation"));
+  app.append(delegationBlock(state.delegation));
+  if (state.delegation.chart && state.delegation.chart.days.length > 0) {
+    app.append(el("h2", "Delegation per day"));
+    mountChart(state.delegation.chart);
   }
 
   app.append(el("h2", "Model comparison"));
@@ -62,6 +70,104 @@ function render(state: ViewState): void {
     app.append(el("h2", `Model switches (${state.switches.length})`));
     app.append(switchList(state));
   }
+}
+
+function mountChart(data: ChartData): void {
+  const host = el("div", "", "chart");
+  app.append(host);
+  // ECharts measures its container, so it must be in the DOM first.
+  requestAnimationFrame(() => {
+    charts.push(renderChart(host, data));
+  });
+}
+
+/**
+ * The delegation split: the headline share sentence, the two proportion
+ * bars, and the per-population figures. Everything arrives computed — the
+ * shares are drawn from host-sent percentages, never derived here.
+ */
+function delegationBlock(d: DelegationView): HTMLElement {
+  const wrap = el("div", "", "delegation");
+  if (d.headline) wrap.append(el("p", d.headline, "delegation-headline"));
+
+  if (d.slices.length > 0) {
+    wrap.append(shareBars(d));
+
+    const table = el("table");
+    const thead = el("thead");
+    const hr = el("tr");
+    for (const [h, cls] of [
+      ["", ""],
+      ["Turns", "num"],
+      ["Cost / turn", "num emph"],
+      ["Total", "num"],
+    ] as const) {
+      hr.append(el("th", h, cls));
+    }
+    thead.append(hr);
+    table.append(thead);
+
+    const tbody = el("tbody");
+    for (const s of d.slices) {
+      const tr = el("tr");
+      const name = el("td");
+      const dot = el("span", "", "dot-sm");
+      dot.style.background = `var(${s.colorVar})`;
+      name.append(dot, document.createTextNode(s.label));
+      if (s.unpricedTurns > 0) {
+        name.append(el("span", `${s.unpricedTurns} unpriced`, "pill"));
+      }
+      tr.append(name);
+      tr.append(el("td", String(s.turns), "num"));
+      tr.append(el("td", s.costPerTurn, "num emph"));
+      tr.append(el("td", s.total, "num"));
+      tbody.append(tr);
+    }
+    table.append(tbody);
+
+    const tableWrap = el("div", "", "table-wrap delegation-table");
+    tableWrap.append(table);
+    wrap.append(tableWrap);
+  }
+
+  if (d.note) wrap.append(el("p", d.note, "muted small"));
+  return wrap;
+}
+
+/**
+ * Two 100% split bars, Turns and Cost, so the asymmetry between them is the
+ * visible thing: a wide sub-agent slice on Turns beside a sliver on Cost is
+ * the whole point of the section.
+ */
+function shareBars(d: DelegationView): HTMLElement {
+  const rows: Array<[string, (s: DelegationView["slices"][number]) => number]> = [
+    ["Turns", (s) => s.turnsPct],
+    ["Cost", (s) => s.costPct],
+  ];
+  const wrap = el("div", "", "share-rows");
+  for (const [label, pctOf] of rows) {
+    // When nothing in either slice could be priced, both cost shares arrive
+    // as 0 and there is no cost proportion to draw.
+    if (d.slices.every((s) => pctOf(s) === 0)) continue;
+    const row = el("div", "", "share-row");
+    row.append(el("span", label, "share-label"));
+    const bar = el("div", "", "share-bar");
+    bar.setAttribute("role", "img");
+    bar.setAttribute(
+      "aria-label",
+      `${label}: ` + d.slices.map((s) => `${s.label} ${Math.round(pctOf(s))}%`).join(", "),
+    );
+    for (const s of d.slices) {
+      const seg = el("span", "", "share-seg");
+      seg.style.width = `${pctOf(s)}%`;
+      seg.style.background = `var(${s.colorVar})`;
+      seg.title = `${s.label} — ${Math.round(pctOf(s))}% of ${label.toLowerCase()}`;
+      bar.append(seg);
+    }
+    row.append(bar);
+    wrap.append(row);
+  }
+  return wrap;
 }
 
 /**
@@ -221,6 +327,9 @@ function comparisonTable(rows: ModelRowView[]): HTMLElement {
     const name = el("td", r.model);
     if (r.unpricedTurns > 0) {
       name.append(el("span", `${r.unpricedTurns} unpriced`, "pill"));
+    }
+    if (r.sidechainNote) {
+      name.append(el("span", r.sidechainNote, "pill"));
     }
     tr.append(name);
     tr.append(el("td", r.costPerTurn, "num emph"));
