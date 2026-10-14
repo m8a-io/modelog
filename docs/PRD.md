@@ -382,6 +382,8 @@ The §6 Marker model already has a slot for exactly this: `provenance: "user"`, 
 
 **Goal:** team-level value and the commercial surface. All opt-in and telemetry questions are deferred to here.
 
+> **Expanded 2026-10-10 in `docs/ENTERPRISE.md`**, which supersedes §7.11–§7.13's one-liners where they differ: convergence-based process discovery over the routines of `docs/PROCESS-INSIGHT.md`, the automation backlog, the process-before-people rule proposed as invariant 8 (routine-level aggregation with a k-anonymity floor; no per-person ranking exists), SaaS-first EU-hosted deployment, and org-supplied enterprise rate tables.
+
 #### 7.11 Sync Boundary
 
 An explicit user action pushing **derived metrics and labels only** — never raw content, prompts, or code — to enterprise servers.

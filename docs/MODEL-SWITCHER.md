@@ -1,8 +1,10 @@
 # Modelog Model Switcher
 
-**Status:** Proposal for review; no implementation commitment.
+**Status:** Superseded by [`PROCESS-INSIGHT.md`](PROCESS-INSIGHT.md) on 2026-10-10. Retained as a research record.
 
 **Research date:** 2026-10-09.
+
+> **Why superseded.** This document's own investigation concluded against its central mechanism: swapping a session's model needs a pre-dispatch barrier most hosts do not expose, and it discards the prompt cache. The parts that survived review carry forward into `PROCESS-INSIGHT.md`: sub-agent delegation becomes one suggestion category (its §6), and the measurement requirements, sub-agent log-evidence table, and PRD Q23 prerequisite transfer with it. The host integration research below (Codex app-server, Copilot, Claude Code control surfaces) remains the reference if a host ever exposes a real pre-dispatch barrier. Nothing below is on the active roadmap.
 
 Modelog should be able to recognize an upcoming task and automatically select the user's preferred model **before that task starts**. The reasons for switching must be entirely user-defined: the user decides what constitutes a task, which signals matter, which conditions cause a switch, and which model should handle the work.
 
