@@ -2,6 +2,13 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] — Price Claude Sonnet 5.5
+
+### Fixed
+
+- **`claude-sonnet-5-5` had no entry in the rate table at all**, so every turn on it showed as completely unpriced — "unavailable" rather than a number. Added at $2.00/$10.00 per 1M input/output tokens, with its published 0.05x cache-read discount (not the 0.1x default most models get).
+- Re-verified every other model already in `data/pricing.json` against Anthropic's and OpenAI's current published list pricing. No other rate has changed since the last check.
+
 ## [0.5.0] — See what delegation costs (and doesn't)
 
 ### Added
