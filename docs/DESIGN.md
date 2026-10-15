@@ -244,6 +244,17 @@ Cost per turn over time, one line per model, daily buckets. Model-switch anchors
 ### 10.4 Session history
 Sortable, filterable table: start time, duration, repo/branch, model(s), turns, cost. Row click expands to per-turn detail. Exportable to CSV.
 
+### 10.5 Delegation split (v0.5.0, PRD §11 Q23)
+Blended cost-per-turn mixes two populations: the developer's own conversation and sub-agent (`isSidechain`) traffic. Dozens of cheap sub-agent calls drag the blended average down without the developer's own turns getting any cheaper — so the dashboard segments rather than blends, and the comparison across days or sessions happens on each population's own denominator.
+
+Three pieces, all computed host-side:
+
+- **The split**: main-thread and sub-agent turns, each with its own turn count, total and cost/turn, plus two 100% proportion bars (turn share and cost share). The headline — *"Sub-agents handled X% of turns for Y% of the cost"* — is pure measurement, never a counterfactual saving (PRD §4.2 would require a stated method for one, and none exists).
+- **The trend**: the same two-panel chart as §10.3, keyed by population instead of by model. Hues are fixed per population, never by rank.
+- **The table annotation**: a model whose turns were partly or wholly sub-agent calls carries an `N sub-agent` / `all sub-agent` pill, so a model used only by sub-agents no longer reads as one the developer chose for work.
+
+Turns ingested before `isSidechain` capture belong to **neither** population — the stored `false` is a column default, not an observation (`src/ingest/capture.ts`) — and the section says how many such turns exist rather than silently counting them as main-thread. Cost is counted in every bucket either way: sub-agent calls are real API calls costing real money.
+
 **Explicitly not in v1:** inferred behavioral markers (PRD §7.4), work-log categories (Part 2), anything requiring the network.
 
 ---

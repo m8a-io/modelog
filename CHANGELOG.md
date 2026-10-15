@@ -2,6 +2,15 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] — See what delegation costs (and doesn't)
+
+### Added
+
+- **A Delegation section on the dashboard** ([#17](https://github.com/m8a-io/modelog/issues/17)). Cost per turn blends two populations — your own conversation and sub-agent traffic — and dozens of cheap sub-agent calls drag the blended average down without your own turns getting any cheaper. The dashboard now segments instead: each population gets its own turn count, total, and cost per turn, two proportion bars show turn share against cost share, and the headline states the measured asymmetry outright, e.g. *"Sub-agents handled 5.0% of turns for 1.6% of the cost."* Measured on real data, never a counterfactual "you saved $X".
+- **A per-day delegation trend** — the same two-panel chart (cost per turn above, turns below), keyed by population instead of by model, so days where delegation was heavy and main-thread cost per turn moved can be read side by side.
+- **Sub-agent annotations in the model comparison table.** A model whose turns were partly or wholly sub-agent calls now carries an `N sub-agent` / `all sub-agent` pill — a model used only by sub-agents no longer reads as one you chose for work.
+- Turns ingested before sub-agent capture existed are reported as belonging to **neither** population, not silently counted as main-thread: the stored `false` on those rows is a column default, not an observation. Sub-agent cost is included in every total either way — real calls, real money.
+
 ## [0.4.0] — One turn per API call
 
 ### Fixed

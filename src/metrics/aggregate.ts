@@ -1,5 +1,5 @@
 import type { Turn, TurnSource } from "../ingest/types.ts";
-import { uncapturedFields, type CapturedField } from "../ingest/capture.ts";
+import { isCaptured, uncapturedFields, type CapturedField } from "../ingest/capture.ts";
 import { turnCost, type RateTable, type Unit } from "./cost.ts";
 
 /**
@@ -179,6 +179,69 @@ export function totals(turns: readonly Turn[], table: RateTable): Totals {
   };
 }
 
+/** One population of the delegation split: either the developer's own turns or sub-agent turns. */
+export interface DelegationBucket {
+  turns: number;
+  /** Denominated in the split's `unit`. Excludes unpriced turns. */
+  totalCost: number;
+  unpricedTurns: number;
+  costPerTurn: number | null;
+}
+
+export interface DelegationSplit {
+  unit: Unit;
+  /** Turns in the developer's own conversation. */
+  main: DelegationBucket;
+  /** Turns made by spawned sub-agents (`isSidechain`). */
+  sub: DelegationBucket;
+  /**
+   * Turns whose sub-agent flag was never captured (ingested before
+   * `isSidechain` existed, source file since gone). They belong to neither
+   * bucket: the stored `false` is a column default, not an observation, and
+   * counting them as main-thread would present a guess as a measurement.
+   */
+  unknownTurns: number;
+}
+
+/**
+ * Split turns into the two populations a blended cost-per-turn mixes (PRD §11
+ * Q23): the developer's own conversation and sub-agent traffic. Sub-agent
+ * turns are real API calls costing real money — they are never dropped, only
+ * segmented, so each population's cost-per-turn is computed over its own
+ * denominator instead of each diluting the other's.
+ */
+export function delegationSplit(turns: readonly Turn[], table: RateTable): DelegationSplit {
+  const unit = unitOf(turns);
+  const empty = (): DelegationBucket => ({
+    turns: 0,
+    totalCost: 0,
+    unpricedTurns: 0,
+    costPerTurn: null,
+  });
+  const main = empty();
+  const sub = empty();
+  let unknown = 0;
+
+  for (const t of turns) {
+    if (!isCaptured(t, "isSidechain")) {
+      unknown++;
+      continue;
+    }
+    const bucket = t.isSidechain ? sub : main;
+    bucket.turns++;
+    const c = turnCost(t, table);
+    if (c === null) bucket.unpricedTurns++;
+    else bucket.totalCost += c.amount;
+  }
+
+  for (const bucket of [main, sub]) {
+    const priced = bucket.turns - bucket.unpricedTurns;
+    bucket.costPerTurn = priced > 0 ? Math.round(bucket.totalCost / priced) : null;
+  }
+
+  return { unit, main, sub, unknownTurns: unknown };
+}
+
 /** One row of per-session history. Also what Phase 0.1's session table needs. */
 export interface SessionRow {
   sessionId: string;
@@ -348,6 +411,7 @@ export interface DailySeries {
   /** Continuous local dates spanning the range — gaps included, so the x axis is even. */
   days: string[];
   series: Array<{
+    /** The series key — a model id by default; a population label when `keyOf` says so. */
     model: string;
     /** Cost per turn in micro-dollars, or null on a day with no turns. */
     values: Array<number | null>;
@@ -356,11 +420,19 @@ export interface DailySeries {
 }
 
 /**
- * Cost per turn per model, bucketed by local day. Days where a model was not
- * used are null rather than zero — an unused model costs nothing, but drawing
+ * Cost per turn per series, bucketed by local day. Days where a series had no
+ * turns are null rather than zero — an unused model costs nothing, but drawing
  * it at zero would imply it got cheaper.
+ *
+ * `keyOf` chooses what a series IS: the model (default) for the trend chart,
+ * or the delegation population (main thread vs sub-agents) for the split
+ * chart. The bucketing and the null-not-zero rule are identical either way.
  */
-export function dailySeries(turns: readonly Turn[], table: RateTable): DailySeries {
+export function dailySeries(
+  turns: readonly Turn[],
+  table: RateTable,
+  keyOf: (t: Turn) => string = (t) => t.model,
+): DailySeries {
   if (turns.length === 0) return { days: [], series: [] };
 
   let min = Infinity;
@@ -381,7 +453,7 @@ export function dailySeries(turns: readonly Turn[], table: RateTable): DailySeri
   }
   const dayIndex = new Map(days.map((d, i) => [d, i]));
 
-  // model -> day index -> running { cost, turns, priced }
+  // series key -> day index -> running { cost, turns, priced }
   //
   // `turns` counts every turn, including unpriced ones, because it is a
   // volume figure in its own right — it drives the turns-per-day bars, and a
@@ -391,10 +463,10 @@ export function dailySeries(turns: readonly Turn[], table: RateTable): DailySeri
   for (const t of turns) {
     const i = dayIndex.get(dayKey(t.ts));
     if (i === undefined) continue;
-    let row = acc.get(t.model);
+    let row = acc.get(keyOf(t));
     if (!row) {
       row = days.map(() => ({ cost: 0, turns: 0, priced: 0 }));
-      acc.set(t.model, row);
+      acc.set(keyOf(t), row);
     }
     row[i]!.turns += 1;
     const c = turnCost(t, table);

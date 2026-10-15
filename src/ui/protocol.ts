@@ -28,6 +28,42 @@ export interface ModelRowView {
   cacheHitRate: string;
   total: string;
   unpricedTurns: number;
+  /**
+   * Sub-agent annotation, or null when none of this model's turns were
+   * sidechain: "all sub-agent" when every turn was, else e.g. "12 sub-agent".
+   * Without it a model used only by sub-agents reads as one the developer
+   * chose for work (PRD §11 Q23).
+   */
+  sidechainNote: string | null;
+}
+
+/** One population of the delegation split — the main thread or sub-agents. */
+export interface DelegationSliceView {
+  label: string;
+  /** A VS Code theme variable name. Fixed per population, matching the delegation chart. */
+  colorVar: string;
+  turns: number;
+  /** Share of capture-known turns, 0–100. Drawn as the proportion bar; never recomputed here. */
+  turnsPct: number;
+  total: string;
+  /** Share of priced cost, 0–100. Both slices are 0 when no turn in either could be priced. */
+  costPct: number;
+  costPerTurn: string;
+  unpricedTurns: number;
+}
+
+export interface DelegationView {
+  /**
+   * Main thread first, then sub-agents. Empty when the range holds no
+   * sub-agent turns — there is no split to draw, and `note` says so.
+   */
+  slices: DelegationSliceView[];
+  /** The headline, e.g. "Sub-agents handled 25% of turns for 2.6% of the cost." */
+  headline: string | null;
+  /** Caveats: the no-sub-agent-turns state, and/or turns predating sub-agent capture. */
+  note: string | null;
+  /** Per-day trend over the two populations; null when there is no split to draw. */
+  chart: ChartData | null;
 }
 
 export interface SwitchView {
@@ -105,6 +141,7 @@ export interface ViewState {
   empty: boolean;
   totals: { turns: number; sessions: number; total: string; unpricedTurns: number };
   rows: ModelRowView[];
+  delegation: DelegationView;
   chart: ChartData;
   switches: SwitchView[];
   warnings: string[];

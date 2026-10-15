@@ -20,9 +20,19 @@ import {
   developerModelSwitches,
   filterByRange,
   dailySeries,
+  delegationSplit,
   partitionBySource,
 } from "./metrics/aggregate.ts";
-import type { ViewState, ModelRowView, ChartData, SourceView, ChartAxis } from "./ui/protocol.ts";
+import { isCaptured } from "./ingest/capture.ts";
+import type {
+  ViewState,
+  ModelRowView,
+  ChartData,
+  SourceView,
+  ChartAxis,
+  DelegationView,
+  DelegationSliceView,
+} from "./ui/protocol.ts";
 import {
   detectBilling,
   billingCopy,
@@ -58,6 +68,17 @@ const SERIES_COLORS = [
   "--vscode-charts-red",
   "--vscode-charts-yellow",
 ];
+
+/**
+ * The delegation split's two populations. Hues are fixed per population —
+ * colour follows the entity, never its rank — and deliberately reuse the two
+ * most-recognisable slots of the same themed palette the model chart draws
+ * from, so the split reads as part of the same system.
+ */
+const DELEGATION = {
+  main: { label: "Main thread", colorVar: "--vscode-charts-blue" },
+  sub: { label: "Sub-agents", colorVar: "--vscode-charts-green" },
+} as const;
 
 export interface ServiceOptions {
   storageDir: string;
@@ -269,6 +290,12 @@ export class ModelogService {
       cacheHitRate: `${(r.cacheHitRate * 100).toFixed(1)}%`,
       total: money(r.totalCost),
       unpricedTurns: r.unpricedTurns,
+      sidechainNote:
+        r.sidechainTurns === 0
+          ? null
+          : r.sidechainTurns === r.turns
+            ? "all sub-agent"
+            : `${r.sidechainTurns} sub-agent`,
     }));
 
     const chart = this.buildChart(turns, tot.unit);
@@ -304,6 +331,7 @@ export class ModelogService {
         unpricedTurns: tot.unpricedTurns,
       },
       rows: viewRows,
+      delegation: this.buildDelegation(turns, tot.unit),
       chart,
       switches,
       warnings: [...this.warnings],
@@ -330,35 +358,97 @@ export class ModelogService {
         ]
       : [];
 
-    const scale = unit === "aiu_nano" ? AIU_NANO : MICRO;
-    const display = (amount: number) => amount / scale;
+    return assembleChart(
+      days,
+      [...named, ...folded].map((s) => ({
+        ...s,
+        colorVar: colors.get(s.model) ?? OVERFLOW_COLOR,
+      })),
+      unit,
+    );
+  }
 
-    let costMax = 0;
-    for (const s of named) {
-      for (const v of s.values) if (v !== null && v > costMax) costMax = v;
-    }
-    let turnsMax = 0;
-    for (let i = 0; i < days.length; i++) {
-      const total = series.reduce((n, s) => n + (s.turns[i] ?? 0), 0);
-      if (total > turnsMax) turnsMax = total;
+  /**
+   * The delegation split (PRD §11 Q23, issue #17): the same range's turns
+   * segmented into the developer's own conversation and sub-agent traffic,
+   * because a blended cost-per-turn mixes two populations — dozens of cheap
+   * sub-agent calls drag the average down without the developer's own turns
+   * getting any cheaper.
+   *
+   * The headline is pure measurement — "sub-agents handled X% of turns for
+   * Y% of the cost" — never a counterfactual saving (PRD §4.2): both shares
+   * are observed, and no estimate of what the work would otherwise have cost
+   * is made anywhere.
+   */
+  private buildDelegation(turns: readonly Turn[], unit: Unit): DelegationView {
+    const split = delegationSplit(turns, this.table);
+    const money = (amount: number) => formatMoney({ amount, unit });
+    const unknownNote =
+      split.unknownTurns > 0
+        ? `${split.unknownTurns} turn${split.unknownTurns === 1 ? "" : "s"} predate ` +
+          `sub-agent capture and belong to neither share.`
+        : null;
+
+    if (split.sub.turns === 0) {
+      // No split to draw. Unknown-capture turns keep this honest: with them
+      // present, "no sub-agent turns" is a claim the data cannot make.
+      const none =
+        turns.length === 0
+          ? null
+          : split.unknownTurns > 0
+            ? "No captured sub-agent turns in this range."
+            : "No sub-agent turns in this range.";
+      return {
+        slices: [],
+        headline: null,
+        note: [none, unknownNote].filter((s) => s !== null).join(" ") || null,
+        chart: null,
+      };
     }
 
-    const costCeiling = niceCeiling(display(costMax));
-    const turnCeiling = turnsCeiling(turnsMax);
+    const captured = split.main.turns + split.sub.turns;
+    const pricedCost = split.main.totalCost + split.sub.totalCost;
+    const turnShare = (split.sub.turns / captured) * 100;
+    const costShare = pricedCost > 0 ? (split.sub.totalCost / pricedCost) * 100 : null;
+
+    const slice = (
+      pop: (typeof DELEGATION)[keyof typeof DELEGATION],
+      b: typeof split.main,
+    ): DelegationSliceView => ({
+      label: pop.label,
+      colorVar: pop.colorVar,
+      turns: b.turns,
+      turnsPct: (b.turns / captured) * 100,
+      total: money(b.totalCost),
+      costPct: pricedCost > 0 ? (b.totalCost / pricedCost) * 100 : 0,
+      costPerTurn: b.costPerTurn === null ? "unavailable" : money(b.costPerTurn),
+      unpricedTurns: b.unpricedTurns,
+    });
+
+    // The per-day trend covers capture-known turns only, keyed by population
+    // instead of by model — same bucketing, same null-not-zero rule.
+    const knownTurns = turns.filter((t) => isCaptured(t, "isSidechain"));
+    const { days, series } = dailySeries(knownTurns, this.table, (t) =>
+      t.isSidechain ? DELEGATION.sub.label : DELEGATION.main.label,
+    );
+    const chart = assembleChart(
+      days,
+      series.map((s) => ({
+        ...s,
+        colorVar:
+          s.model === DELEGATION.sub.label ? DELEGATION.sub.colorVar : DELEGATION.main.colorVar,
+      })),
+      unit,
+    );
 
     return {
-      days,
-      dayLabels: days.map(shortDay),
-      series: [...named, ...folded].map((s) => ({
-        model: s.model,
-        colorVar: colors.get(s.model) ?? OVERFLOW_COLOR,
-        values: s.values.map((v) => (v === null ? null : display(v))),
-        turns: s.turns,
-        labels: s.values.map((v) => (v === null ? null : formatMoney({ amount: v, unit }))),
-      })),
-      cost: axisFor(costCeiling, (v) => formatMoney({ amount: Math.round(v * scale), unit })),
-      turns: axisFor(turnCeiling, (v) => String(Math.round(v))),
-      costLabel: unit === "aiu_nano" ? "Cost per turn (credits)" : "Cost per turn ($)",
+      slices: [slice(DELEGATION.main, split.main), slice(DELEGATION.sub, split.sub)],
+      headline:
+        costShare === null
+          ? `Sub-agents handled ${pct(turnShare)} of turns.`
+          : `Sub-agents handled ${pct(turnShare)} of turns for ${pct(costShare)} of the cost.`,
+      note: unknownNote,
+      chart,
     };
   }
 
@@ -380,6 +470,64 @@ export class ModelogService {
   }
 }
 
+
+/**
+ * Finish a chart: scale raw per-unit amounts for display, format tooltip
+ * labels, and derive both axes. Shared by the model trend and the delegation
+ * trend, which differ only in what a series IS — the panel layout, the
+ * two-scales rule and the formatting are the same contract either way.
+ */
+function assembleChart(
+  days: string[],
+  series: Array<{
+    model: string;
+    colorVar: string;
+    values: Array<number | null>;
+    turns: number[];
+  }>,
+  unit: Unit,
+): ChartData {
+  const scale = unit === "aiu_nano" ? AIU_NANO : MICRO;
+  const display = (amount: number) => amount / scale;
+
+  let costMax = 0;
+  for (const s of series) {
+    for (const v of s.values) if (v !== null && v > costMax) costMax = v;
+  }
+  let turnsMax = 0;
+  for (let i = 0; i < days.length; i++) {
+    const total = series.reduce((n, s) => n + (s.turns[i] ?? 0), 0);
+    if (total > turnsMax) turnsMax = total;
+  }
+
+  return {
+    days,
+    dayLabels: days.map(shortDay),
+    series: series.map((s) => ({
+      model: s.model,
+      colorVar: s.colorVar,
+      values: s.values.map((v) => (v === null ? null : display(v))),
+      turns: s.turns,
+      labels: s.values.map((v) => (v === null ? null : formatMoney({ amount: v, unit }))),
+    })),
+    cost: axisFor(niceCeiling(display(costMax)), (v) =>
+      formatMoney({ amount: Math.round(v * scale), unit }),
+    ),
+    turns: axisFor(turnsCeiling(turnsMax), (v) => String(Math.round(v))),
+    costLabel: unit === "aiu_nano" ? "Cost per turn (credits)" : "Cost per turn ($)",
+  };
+}
+
+/**
+ * A share for prose: whole percent from 10% up (25%, not 25.0%), one decimal
+ * below that where it carries signal (2.6%), and "<1%" under one — a rounded
+ * 0% would claim the sub-agent work was free.
+ */
+function pct(v: number): string {
+  if (v < 1) return "<1%";
+  if (v < 10) return `${v.toFixed(1)}%`;
+  return `${Math.round(v)}%`;
+}
 
 /** Round a max value up to a readable axis ceiling. */
 /**
