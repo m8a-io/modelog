@@ -215,7 +215,15 @@ function buildOption(data: ChartData, t: ChartTheme): echarts.EChartsCoreOption 
         type: "category",
         gridIndex: 0,
         data: data.dayLabels,
-        boundaryGap: false,
+        // Must match the bar panel below: a category axis defaults to
+        // boundaryGap: true, which centers each day in a cell between
+        // gridlines — correct and required for a bar series, since a bar
+        // needs a cell to fill. Overriding it to false here (as a previous
+        // version of this code did, to put a line's first/last point flush
+        // against the plot edge) moves every point onto the gridline itself,
+        // a full half-cell off from where the bar panel's bars sit. Keeping
+        // both panels at the same (default, true) setting is what makes a
+        // line point land directly above its matching bar.
         axisLine: { lineStyle: { color: t.border } },
         axisTick: { show: false },
         axisLabel: { show: false },
