@@ -128,6 +128,23 @@ v1 keeps the blast radius small:
 
 Owning the config-file format of every MCP client is not a v1 commitment.
 
+> **Extended 2026-10-22 to four clients — without taking on a second config format.** The original split assumed that "offer automatic registration" means "write the client's file," which is why it stopped at one. It does not. Three of the four clients are now covered, by three different mechanisms, and only Claude Code's is a file Modelog writes:
+>
+> | Client | Mechanism | Who edits the config |
+> | :--- | :--- | :--- |
+> | Claude Code | `~/.claude.json` merge (`claudeConfig.ts`) | Modelog |
+> | VS Code's MCP client — what Copilot Chat consumes | `lm.registerMcpServerDefinitionProvider` | **No config file exists** |
+> | GitHub Copilot CLI | `copilot mcp add` | The Copilot CLI |
+> | Codex (CLI and the `openai.chatgpt` extension, one config) | `codex mcp add` | Codex |
+>
+> **Shelling out to the vendor's own CLI is what keeps the v1 commitment intact.** Codex's config is TOML carrying the selected model, reasoning effort, and a `trust_level` per project; there is no TOML serialiser in this project's dependencies and none built into Node 24, and a hand-rolled rewrite would not round-trip comments. The Copilot CLI coordinates writes through a `.mcp-writer.lock`, which a direct write would step around. Running `codex mcp add` and `copilot mcp add` means Modelog never learns either format — verified 2026-10-22 (codex-cli 0.162.0, Copilot CLI 1.0.94) that both preserve every unrelated section and that `mcp remove` takes only the `modelog` entry back out.
+>
+> The price is a second PATH dependency beyond §7.2's `node`: `codex` or `copilot` must be reachable from the extension host. Checked at enable time, with the Copy Configuration path offered when it is not. One behavioural difference is load-bearing and is recorded on `CliClient.addReplaces`: `codex mcp add` replaces an existing entry, `copilot mcp add` exits non-zero and tells you to remove first — so a re-register on Copilot is a remove-then-add.
+>
+> **§7.3's four guarantees survive the change of mechanism**, restated in terms of commands: the exact command line and the exact file are shown and confirmed, the file is copied to `<file>.bak` first, and a non-zero exit surfaces the CLI's own stderr rather than a guess about what it refused.
+>
+> **VS Code is the one that needed no registration and still did not work.** Target A has been registered unconditionally at activation since Phase 3, so `Enable MCP Server (Copilot)` has nothing to write for Copilot Chat — the gap was never configuration. A user still has to start the server in VS Code's MCP servers list and tick its tools in the Chat tool picker, and agent mode caps how many tools may be active at once, so a correctly registered, running server with no tools selected is indistinguishable from one that was never registered. The command therefore fires the definitions-changed event, opens that view, and *states the two manual steps* rather than reporting success. VS Code's MCP command ids are not extension API, so they are resolved against `commands.getCommands()` and degrade to naming the palette entry.
+
 ---
 
 ## 8. Tool Surface

@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/m8a-io/modelog/issues"
   },
-  "version": "0.5.1",
+  "version": "0.6.0",
   "publisher": "Modelog",
   "license": "MIT",
   "icon": "images/modelog-logo-128x128.png",
@@ -97,6 +97,22 @@
         "title": "Modelog: Disable MCP Server (Claude Code)"
       },
       {
+        "command": "modelog.enableMcpServerCopilot",
+        "title": "Modelog: Enable MCP Server (Copilot)"
+      },
+      {
+        "command": "modelog.disableMcpServerCopilot",
+        "title": "Modelog: Disable MCP Server (Copilot)"
+      },
+      {
+        "command": "modelog.enableMcpServerCodex",
+        "title": "Modelog: Enable MCP Server (Codex)"
+      },
+      {
+        "command": "modelog.disableMcpServerCodex",
+        "title": "Modelog: Disable MCP Server (Codex)"
+      },
+      {
         "command": "modelog.copyMcpConfiguration",
         "title": "Modelog: Copy MCP Server Configuration"
       },
@@ -115,6 +131,10 @@
       {
         "command": "modelog.copilotStatus",
         "title": "Modelog: Copilot Status"
+      },
+      {
+        "command": "modelog.removeChanges",
+        "title": "Modelog: Remove Modelog's Changes"
       }
     ],
     "configuration": {
@@ -206,6 +226,7 @@
     }
   },
   "scripts": {
+    "vscode:uninstall": "node ./dist/uninstall.js",
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",

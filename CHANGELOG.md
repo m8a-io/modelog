@@ -2,6 +2,24 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] — Setting up, and cleaning up
+
+### Added
+
+- **`Modelog: Enable MCP Server (Copilot)` and `Modelog: Enable MCP Server (Codex)`**, with matching `Disable` commands. Until now only Claude Code had a setup command, so every other client meant discovering the MCP bridge existed and then hand-writing config for it.
+- **"Copilot" asks which Copilot**, because they are two products with two unrelated mechanisms. The **Copilot CLI** branch runs `copilot mcp add`, writing `~/.copilot/mcp-config.json`. The **Copilot Chat** branch writes nothing at all — Modelog has always registered with VS Code's own MCP client at startup, so the real gap was never configuration: you still have to start the server in VS Code's MCP servers list and tick its tools in the Chat tool picker, and agent mode caps how many tools can be active at once. A registered, running server with no tools selected looks exactly like one that was never set up. The command opens that view and names both steps instead of reporting a success it cannot verify.
+- **Codex registration runs `codex mcp add`**, writing `~/.codex/config.toml`. For both CLIs Modelog shells out to the vendor's own tool rather than editing the file: Codex's config is TOML carrying model settings and a `trust_level` per project, and the Copilot CLI coordinates writes through a lock file. Neither format becomes Modelog's to get right, and comments and unrelated sections survive. The guarantees are unchanged — the exact command and the exact file are shown and confirmed, a `.bak` is taken first, and a failure surfaces the CLI's own error.
+- **A "Setting up" section in the README**, per assistant: what needs no setup (Claude Code and Codex log by default), what will stay empty until you act (Copilot Chat writes no usage log until `Modelog: Enable Copilot Analysis` turns one on), and which command registers the MCP bridge where.
+
+- **`Modelog: Remove Modelog's Changes`, and an uninstall hook that runs it for you.** Modelog writes four things outside its own storage — Copilot's debug-logging setting, and an MCP entry in Claude Code's, the Copilot CLI's and Codex's configs — and none of them went away when the extension did. Left behind, the MCP entries point at a server file VS Code has deleted, so three assistants try to spawn a missing file every session, and Copilot keeps writing prompt-and-code debug files indefinitely. The command lists only what is actually present, ticks the restorative items, leaves destructive ones (backup files, collected history) unticked, and reports each separately. A `vscode:uninstall` hook runs the same plan unattended on the next VS Code start for anyone who simply uninstalls — restorative items only, since it has no way to ask.
+- Copilot's logging is switched back off **only when Modelog is on record as having switched it on**. `Enable Copilot Analysis` returns early when the setting is already true, so a user who turned it on themselves must get it back untouched; a small `~/.modelog/uninstall.json` records that distinction, and the hook deletes it as its last act. The settings file is **located by reading it back**, not by computing a path — VS Code exposes no API for where `ConfigurationTarget.Global` actually wrote, and the obvious derivation is wrong in a remote window, where the user settings file is not even on the same machine as the extension host. When it cannot be found, the cleanup says so and names the key, rather than editing a guess.
+- Modelog's own data is deliberately **not** cleaned up by either path: VS Code deletes an extension's storage directory on uninstall by itself. Deleting the collected history is offered by the command only, unticked, for starting over without uninstalling.
+
+### Changed
+
+- **Config writes are atomic** — a sibling temp file and a rename, rather than writing in place. The uninstall hook shares this code and is SIGKILLed by VS Code after five seconds, so a kill landing inside a plain write could have truncated `~/.claude.json`, which holds Claude Code's auth state.
+- **`Modelog: MCP Server Status` now reports all four clients separately**, not two. They fail for four unrelated reasons — a bundle that would not deploy, a project Claude Code has never seen, a CLI that is not on `PATH`, an entry that was never written — and an assistant that is not installed is reported as such rather than as one that merely has not been set up.
+
 ## [0.5.1] — Price Claude Sonnet 5.5
 
 ### Fixed
