@@ -12,10 +12,35 @@ import {
   type McpServerEntry,
 } from "./mcp/claudeConfig.ts";
 import { readClaudeConfig, backupAndWriteClaudeConfig } from "./mcp/claudeConfigFile.ts";
-import { isNodeOnPath } from "./mcp/nodeOnPath.ts";
+import { isNodeOnPath, isOnPath } from "./mcp/nodeOnPath.ts";
+import {
+  codexClient,
+  copilotCliClient,
+  mcpAddArgs,
+  mcpRemoveArgs,
+  formatCommand,
+  runCli,
+  isRegisteredWithCli,
+  backupFile,
+  type CliClient,
+} from "./mcp/cliRegistration.ts";
 import { findCopilotLogs } from "./ingest/copilot.ts";
+import { planCleanup, runCleanup } from "./cleanup/plan.ts";
+import { footprintPath, recordCopilotLogging } from "./cleanup/footprint.ts";
+import { findSettingsFileWith, listProfiles, settingsCandidates } from "./cleanup/settings.ts";
 
 let service: ModelogService | undefined;
+
+/**
+ * Target A's refresh signal, hoisted to module scope so commands can fire it.
+ *
+ * Firing it makes VS Code re-ask the provider for its server definitions
+ * (INSTALL-ux.md §2.1). That is the only lever Modelog has over the VS Code
+ * MCP client after activation — there is no "connect" call and no config file
+ * — so "Enable MCP Server (Copilot)" uses it to nudge the editor before
+ * handing the user the steps only they can take.
+ */
+let didChangeMcpDefinitions: vscode.EventEmitter<void> | undefined;
 
 /**
  * Called once by VS Code on the "onStartupFinished" activation event declared
@@ -74,11 +99,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("modelog.enableMcpServer", () => enableMcpServer(context, cfg)),
     vscode.commands.registerCommand("modelog.disableMcpServer", () => disableMcpServer()),
+    vscode.commands.registerCommand("modelog.enableMcpServerCopilot", () => enableMcpServerCopilot(context, cfg)),
+    vscode.commands.registerCommand("modelog.disableMcpServerCopilot", () => disableMcpServerCopilot()),
+    vscode.commands.registerCommand("modelog.enableMcpServerCodex", () => enableMcpServerViaCli(context, cfg, codexClient(homedir()))),
+    vscode.commands.registerCommand("modelog.disableMcpServerCodex", () => disableMcpServerViaCli(codexClient(homedir()))),
     vscode.commands.registerCommand("modelog.copyMcpConfiguration", () => copyMcpConfiguration(context, cfg)),
     vscode.commands.registerCommand("modelog.mcpServerStatus", () => showMcpServerStatus(context)),
-    vscode.commands.registerCommand("modelog.enableCopilotAnalysis", () => enableCopilotAnalysis()),
+    vscode.commands.registerCommand("modelog.enableCopilotAnalysis", () => enableCopilotAnalysis(context)),
     vscode.commands.registerCommand("modelog.disableCopilotAnalysis", () => disableCopilotAnalysis()),
     vscode.commands.registerCommand("modelog.copilotStatus", () => showCopilotStatus(context, cfg)),
+    vscode.commands.registerCommand("modelog.removeChanges", () => removeModelogChanges(context)),
   );
 
   // No background watcher (DESIGN.md §5): nobody keeps the dashboard open
@@ -165,6 +195,7 @@ function registerMcpProvider(
   if (!deployed) return;
 
   const didChangeDefinitions = new vscode.EventEmitter<void>();
+  didChangeMcpDefinitions = didChangeDefinitions;
   context.subscriptions.push(
     didChangeDefinitions,
     vscode.lm.registerMcpServerDefinitionProvider("modelog.mcp", {
@@ -349,9 +380,294 @@ async function copyMcpConfiguration(
   const json = JSON.stringify({ mcpServers: { modelog: entry } }, null, 2);
   await vscode.env.clipboard.writeText(json);
   void vscode.window.showInformationMessage(
-    'Modelog: MCP server configuration copied to the clipboard. Paste it into your client\'s MCP config ' +
-      '(for Claude Code specifically, use "Modelog: Enable MCP Server" instead).',
+    "Modelog: MCP server configuration copied to the clipboard. Paste it into your client's MCP config. " +
+      "Claude Code, Copilot and Codex each have their own Enable command, which does this for you.",
   );
+}
+
+// --- Registration for the other three clients ------------------------------
+
+/**
+ * "Copilot" is two products with two unrelated mechanisms, so the command
+ * asks which rather than guessing:
+ *
+ * - **Copilot Chat in VS Code** consumes the editor's own MCP client, which
+ *   Modelog already registers with at activation (Target A). There is no file
+ *   to write, and no amount of config will help — what is actually missing is
+ *   the user starting the server and enabling its tools in agent mode.
+ * - **The Copilot CLI** is a separate product with its own config file and
+ *   behaves like Claude Code and Codex.
+ *
+ * Collapsing them into one command would have to pick a mechanism, and would
+ * then be silently useless for whichever product the user meant.
+ */
+async function enableMcpServerCopilot(
+  context: vscode.ExtensionContext,
+  cfg: () => vscode.WorkspaceConfiguration,
+): Promise<void> {
+  const target = await pickCopilotTarget("Where should Modelog's MCP server be enabled?");
+  if (target === "vscode") await enableMcpServerForVsCode(context);
+  else if (target === "cli")
+    await enableMcpServerViaCli(context, cfg, copilotCliClient(homedir()));
+}
+
+async function disableMcpServerCopilot(): Promise<void> {
+  const target = await pickCopilotTarget("Where should Modelog's MCP server be disabled?");
+  if (target === "vscode") await explainVsCodeMcpIsNotConfigurable();
+  else if (target === "cli") await disableMcpServerViaCli(copilotCliClient(homedir()));
+}
+
+async function pickCopilotTarget(title: string): Promise<"vscode" | "cli" | undefined> {
+  const chatInstalled = copilotChatInstalled();
+  const cliPresent = isOnPath("copilot");
+
+  const items = [
+    {
+      label: "GitHub Copilot Chat (in VS Code)",
+      description: chatInstalled ? "installed" : "not installed",
+      detail:
+        "Uses VS Code's own MCP client. No config file — Modelog registers itself at startup.",
+      target: "vscode" as const,
+    },
+    {
+      label: "GitHub Copilot CLI",
+      description: cliPresent ? "found on PATH" : "not found on PATH",
+      detail: `A separate product with its own config at ${copilotCliClient(homedir()).configPath}.`,
+      target: "cli" as const,
+    },
+  ];
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title,
+    placeHolder: "These are different products and are configured differently.",
+    ignoreFocusOut: true,
+  });
+  return picked?.target;
+}
+
+/**
+ * The VS Code / Copilot Chat branch, which writes nothing.
+ *
+ * Modelog's leverage here ends at firing the definitions-changed event. The
+ * remaining steps happen in VS Code's UI and in the chat tool picker, and
+ * cannot be performed on the user's behalf by any API in 1.101+ — so they are
+ * stated plainly instead of being implied by a success message. This is the
+ * same honesty rule the Claude Code path follows for a different reason
+ * (INSTALL-ux.md §2.2): never report "connected" when that is not knowable.
+ */
+async function enableMcpServerForVsCode(context: vscode.ExtensionContext): Promise<void> {
+  if (!deployMcpBundle(context)) {
+    void vscode.window.showErrorMessage(
+      "Modelog: could not prepare the MCP server bundle, so VS Code has nothing to run. Check the Output panel.",
+    );
+    return;
+  }
+
+  didChangeMcpDefinitions?.fire();
+
+  const OPEN = "Open MCP Servers";
+  const choice = await vscode.window.showInformationMessage(
+    "Modelog: already registered with VS Code's MCP client — there is no config file to write.",
+    {
+      modal: true,
+      detail:
+        "Copilot Chat reads MCP servers from VS Code itself, and Modelog registers one every time " +
+        "the extension starts. Nothing else needs configuring.\n\n" +
+        "Two steps remain that only you can take, in VS Code's own UI:\n\n" +
+        '1. Start the "Modelog" server in the MCP servers list, and allow it if VS Code asks you to trust it.\n' +
+        "2. In the Chat view, switch to Agent mode, open the tools picker and tick Modelog's tools. " +
+        "Agent mode caps how many tools can be active at once, so a server can be running and still " +
+        "have none of its tools selected.\n\n" +
+        "That second step is the one most often missed — a running server with no tools ticked looks " +
+        "exactly like a server that was never registered.",
+    },
+    OPEN,
+  );
+  if (choice !== OPEN) return;
+
+  await openMcpServersView();
+}
+
+async function explainVsCodeMcpIsNotConfigurable(): Promise<void> {
+  const OPEN = "Open MCP Servers";
+  const choice = await vscode.window.showInformationMessage(
+    "Modelog: there is nothing for Modelog to remove here.",
+    {
+      modal: true,
+      detail:
+        "The VS Code registration is part of the extension itself, not a config file Modelog wrote, " +
+        "so it cannot be taken back out from this side.\n\n" +
+        "Stop or disable the \"Modelog\" server in VS Code's MCP servers list, or untick its tools in " +
+        "the Chat tool picker. Either stops Copilot Chat using it; neither affects the dashboard.",
+    },
+    OPEN,
+  );
+  if (choice === OPEN) await openMcpServersView();
+}
+
+/**
+ * VS Code's MCP command ids are not part of the extension API, so they are
+ * resolved against the running editor rather than hardcoded — the ids below
+ * were read out of the 1.105 workbench bundle and could be renamed in any
+ * release. When none is present the user is told which palette entry to run,
+ * which is a visible gap rather than a silently dead button.
+ */
+async function openMcpServersView(): Promise<void> {
+  const available = new Set(await vscode.commands.getCommands(true));
+  const command = ["workbench.mcp.showInstalledServers", "workbench.mcp.listServer"].find((id) =>
+    available.has(id),
+  );
+
+  if (!command) {
+    void vscode.window.showInformationMessage(
+      'Modelog: this VS Code version exposes no MCP view command Modelog recognises. Run "MCP: List Servers" from the Command Palette instead.',
+    );
+    return;
+  }
+
+  await vscode.commands.executeCommand(command);
+}
+
+/**
+ * Registration for the clients that own a CLI — Codex and the Copilot CLI.
+ *
+ * Modelog runs their `mcp add` rather than editing their config (see
+ * `cliRegistration.ts` for why), so MCP.md §7.3's four guarantees are met in
+ * terms of commands rather than JSON: the exact command and the exact file are
+ * shown, a backup is taken, and only then does anything run. A failure
+ * surfaces the CLI's own stderr, because that text is the only accurate
+ * account of what it refused to do.
+ */
+async function enableMcpServerViaCli(
+  context: vscode.ExtensionContext,
+  cfg: () => vscode.WorkspaceConfiguration,
+  client: CliClient,
+): Promise<void> {
+  if (!isOnPath(client.bin)) {
+    await offerCopyConfiguration(
+      context,
+      cfg,
+      `Modelog: "${client.bin}" was not found on PATH, so ${client.label} cannot be configured from here.`,
+    );
+    return;
+  }
+
+  if (!isNodeOnPath()) {
+    void vscode.window.showErrorMessage(
+      `Modelog: "node" was not found on PATH. ${client.label} spawns the MCP server by running "node", ` +
+        "so it must be reachable here for registration to work.",
+    );
+    return;
+  }
+
+  const deployed = deployMcpBundle(context);
+  if (!deployed) {
+    void vscode.window.showErrorMessage("Modelog: could not prepare the MCP server bundle.");
+    return;
+  }
+
+  const home = homedir();
+  const env = mcpServerEnv(context.globalStorageUri.fsPath, cfg().get<string>("billingMode", "auto"));
+  const addArgs = mcpAddArgs(deployed.path, env);
+
+  // Codex's `mcp add` replaces in place; Copilot's refuses and tells you to
+  // remove first. Doing the remove here keeps "Replace" meaning the same thing
+  // in both dialogs instead of leaking a vendor quirk into the user's lap.
+  const alreadyRegistered = isRegisteredWithCli(client, home) === true;
+  const steps =
+    alreadyRegistered && !client.addReplaces ? [mcpRemoveArgs(), addArgs] : [addArgs];
+
+  const verb = alreadyRegistered ? "Replace" : "Register";
+  const choice = await vscode.window.showInformationMessage(
+    `Modelog: ${verb.toLowerCase()} the "modelog" MCP server in ${client.label}?`,
+    {
+      modal: true,
+      detail:
+        `Modelog will run ${steps.length === 1 ? "this command" : "these commands"}:\n\n` +
+        steps.map((args) => formatCommand(client.bin, args)).join("\n") +
+        `\n\n${client.label} edits ${client.configPath} itself — Modelog does not write that file, ` +
+        `so nothing else in it is touched. A backup is saved to ${client.configPath}.bak first.\n\n` +
+        `${client.label} reads this at session start, so the server appears in your next session — not a running one.`,
+    },
+    verb,
+  );
+  if (choice !== verb) return;
+
+  backupFile(client.configPath);
+
+  for (const args of steps) {
+    const result = runCli(client.bin, args, { cwd: home });
+    if (result.status === "ok") continue;
+    void vscode.window.showErrorMessage(
+      `Modelog: ${formatCommand(client.bin, args)} failed.` +
+        (result.status === "not-found"
+          ? ` "${client.bin}" could not be run.`
+          : result.output
+            ? ` ${result.output}`
+            : ""),
+    );
+    return;
+  }
+
+  void vscode.window.showInformationMessage(
+    `Modelog: registered with ${client.label} in ${client.configPath}. It appears next time you start a ${client.label} session.`,
+  );
+}
+
+async function disableMcpServerViaCli(client: CliClient): Promise<void> {
+  if (!isOnPath(client.bin)) {
+    void vscode.window.showErrorMessage(
+      `Modelog: "${client.bin}" was not found on PATH, so ${client.label} cannot be configured from here.`,
+    );
+    return;
+  }
+
+  const home = homedir();
+  if (isRegisteredWithCli(client, home) !== true) {
+    void vscode.window.showInformationMessage(
+      `Modelog: not registered with ${client.label} — nothing to do.`,
+    );
+    return;
+  }
+
+  const args = mcpRemoveArgs();
+  const CONFIRM = "Remove";
+  const choice = await vscode.window.showInformationMessage(
+    `Modelog: remove the "modelog" MCP server from ${client.label}?`,
+    {
+      modal: true,
+      detail:
+        `Modelog will run:\n\n${formatCommand(client.bin, args)}\n\n` +
+        `This removes only the "modelog" entry from ${client.configPath}; every other server stays. ` +
+        `A backup is saved to ${client.configPath}.bak first.`,
+    },
+    CONFIRM,
+  );
+  if (choice !== CONFIRM) return;
+
+  backupFile(client.configPath);
+
+  const result = runCli(client.bin, args, { cwd: home });
+  if (result.status !== "ok") {
+    void vscode.window.showErrorMessage(
+      `Modelog: ${formatCommand(client.bin, args)} failed.` +
+        (result.status === "not-found" ? ` "${client.bin}" could not be run.` : ` ${result.output}`),
+    );
+    return;
+  }
+
+  void vscode.window.showInformationMessage(`Modelog: removed from ${client.configPath}.`);
+}
+
+/** The §7.4 fallback, reached when a client's own CLI is not available to do the work. */
+async function offerCopyConfiguration(
+  context: vscode.ExtensionContext,
+  cfg: () => vscode.WorkspaceConfiguration,
+  message: string,
+): Promise<void> {
+  const COPY = "Copy Configuration";
+  const choice = await vscode.window.showErrorMessage(`${message} You can configure it by hand instead.`, COPY);
+  if (choice === COPY) await copyMcpConfiguration(context, cfg);
 }
 
 // --- Copilot analysis opt-in (PRD §7.1, open question 15) -------------------
@@ -387,7 +703,7 @@ function copilotChatInstalled(): boolean {
  * Modelog itself never reads the prompt content in those files; the point of
  * the warning is that the files will exist on disk for anything else to read.
  */
-async function enableCopilotAnalysis(): Promise<void> {
+async function enableCopilotAnalysis(context: vscode.ExtensionContext): Promise<void> {
   if (!copilotChatInstalled()) {
     void vscode.window.showErrorMessage(
       "Modelog: GitHub Copilot Chat is not installed, so there is nothing to enable.",
@@ -432,9 +748,43 @@ async function enableCopilotAnalysis(): Promise<void> {
     return;
   }
 
+  rememberWeTurnedCopilotLoggingOn(context);
+
   void vscode.window.showInformationMessage(
     "Modelog: Copilot debug logging is on. Start a new Copilot Chat session to produce data — existing sessions are not logged retroactively.",
   );
+}
+
+/**
+ * Records that *Modelog* is the reason the setting is on, and where it landed,
+ * so uninstall cleanup can undo exactly this and nothing else.
+ *
+ * The file is located by reading it back rather than by computing a path: VS
+ * Code offers no API for where `ConfigurationTarget.Global` actually wrote,
+ * and the obvious derivation is wrong in a remote window (see
+ * `cleanup/settings.ts`). A `null` here is recorded as a null — the cleanup
+ * then names the key for the user instead of editing a guess.
+ */
+function rememberWeTurnedCopilotLoggingOn(context: vscode.ExtensionContext): void {
+  const userDir = resolve(context.globalStorageUri.fsPath, "..", "..");
+  const key = `${COPILOT_LOGGING_SECTION}.${COPILOT_LOGGING_KEY}`;
+
+  const settingsFile = findSettingsFileWith(
+    settingsCandidates({
+      home: homedir(),
+      userDir,
+      platform: process.platform,
+      env: process.env,
+      profiles: listProfiles(userDir),
+    }),
+    key,
+  );
+
+  try {
+    recordCopilotLogging(footprintPath(homedir()), { key, settingsFile });
+  } catch (e) {
+    console.error("[modelog] could not record the uninstall footprint:", e);
+  }
 }
 
 async function disableCopilotAnalysis(): Promise<void> {
@@ -462,6 +812,14 @@ async function disableCopilotAnalysis(): Promise<void> {
   await vscode.workspace
     .getConfiguration(COPILOT_LOGGING_SECTION)
     .update(COPILOT_LOGGING_KEY, false, vscode.ConfigurationTarget.Global);
+
+  // Nothing left for cleanup to undo, and a stale record would later switch
+  // off a setting the user had turned back on themselves.
+  try {
+    recordCopilotLogging(footprintPath(homedir()), undefined);
+  } catch (e) {
+    console.error("[modelog] could not clear the uninstall footprint:", e);
+  }
 
   void vscode.window.showInformationMessage(
     "Modelog: Copilot debug logging is off. Previously written logs were not deleted.",
@@ -495,16 +853,109 @@ function showCopilotStatus(
   });
 }
 
+// --- Uninstall cleanup (the consented half) --------------------------------
+
 /**
- * PLAN-part2.md §3.5: the two targets fail independently and a boolean
+ * `Modelog: Remove Modelog's Changes` — the only place the user can be *asked*
+ * about any of this.
+ *
+ * VS Code's `vscode:uninstall` hook runs the same plan (`cleanup/plan.ts`),
+ * but it is a bare Node process with no window: it cannot show a checkbox, so
+ * it quietly does only what is unambiguously a restoration. Anything
+ * destructive — the `.bak` files, the collected history — exists only here,
+ * unticked, where someone can read what it means first.
+ *
+ * Modelog's own storage is absent from both, because VS Code deletes it
+ * itself immediately after the hook (verified in 1.105's `postUninstall`).
+ */
+async function removeModelogChanges(context: vscode.ExtensionContext): Promise<void> {
+  const items = planCleanup({
+    home: homedir(),
+    platform: process.platform,
+    env: process.env,
+    userDir: resolve(context.globalStorageUri.fsPath, "..", ".."),
+    storageDir: context.globalStorageUri.fsPath,
+  });
+
+  if (items.length === 0) {
+    void vscode.window.showInformationMessage("Modelog: nothing to clean up.", {
+      modal: true,
+      detail:
+        "Modelog has not written anything outside its own storage on this machine — no Copilot " +
+        "setting, no MCP entries in another assistant's config.\n\n" +
+        "Its own data needs no cleanup either: VS Code deletes an extension's storage directory " +
+        "when the extension is uninstalled.",
+    });
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    items.map((item) => ({
+      label: item.label,
+      detail: item.detail,
+      picked: item.recommended,
+      item,
+    })),
+    {
+      title: "Modelog: remove the changes Modelog made",
+      placeHolder: "Ticked items are run. Untick anything you want to keep.",
+      canPickMany: true,
+      ignoreFocusOut: true,
+    },
+  );
+  if (!picked || picked.length === 0) return;
+
+  const chosen = picked.map((p) => p.item);
+  const CONFIRM = "Remove";
+  const choice = await vscode.window.showWarningMessage(
+    `Modelog: run ${chosen.length} cleanup ${chosen.length === 1 ? "action" : "actions"}?`,
+    {
+      modal: true,
+      detail:
+        chosen.map((item) => `• ${item.label}\n  ${item.detail}`).join("\n\n") +
+        "\n\nConfig files are backed up to <file>.bak before being changed. Deletions are not reversible.",
+    },
+    CONFIRM,
+  );
+  if (choice !== CONFIRM) return;
+
+  const results = runCleanup(chosen);
+  const failed = results.filter((r) => r.outcome.status === "failed");
+
+  // Reported per item rather than as a count: the one that matters most —
+  // Copilot's logging, which keeps writing prompt-bearing files until it is
+  // off — is exactly the one whose failure carries a manual instruction.
+  const detail = results.map(({ item, outcome }) => `• ${item.label}\n  ${outcome.note}`).join("\n\n");
+
+  if (failed.length === 0) {
+    void vscode.window.showInformationMessage("Modelog: cleanup complete.", { modal: true, detail });
+    return;
+  }
+
+  void vscode.window.showWarningMessage(
+    `Modelog: cleanup finished with ${failed.length} ${failed.length === 1 ? "problem" : "problems"}.`,
+    { modal: true, detail },
+  );
+}
+
+/**
+ * PLAN-part2.md §3.5: the targets fail independently and a boolean
  * "MCP: on/off" cannot say which. Reported per target, not merged into one.
- * Target A has no "is connected" API to query — a provider registration
- * either threw (logged, deployMcpBundle already returned `undefined`) or it
- * did not — so "registered with VS Code" means exactly that, not "connected".
+ *
+ * There are four now, not two, and they fail for four unrelated reasons — a
+ * bundle that would not deploy, a project Claude Code has never seen, a CLI
+ * that is not on PATH, and an entry that was never written. Each line names
+ * the one that applies, because "MCP: not working" sends a user looking in the
+ * wrong place three times out of four.
+ *
+ * Target A has no "is connected" API to query — a provider registration either
+ * threw (logged, `deployMcpBundle` already returned `undefined`) or it did not
+ * — so "registered with VS Code" means exactly that, not "connected", and
+ * certainly not "its tools are selected in agent mode".
  */
 async function showMcpServerStatus(context: vscode.ExtensionContext): Promise<void> {
   const targetA = deployMcpBundle(context)
-    ? "Registered with VS Code's MCP client."
+    ? "Registered with VS Code's MCP client. Start it, and tick its tools in the Chat tool picker, to reach it from Copilot Chat."
     : "Not registered — the server bundle could not be deployed. Check the Output panel.";
 
   const folder = vscode.workspace.workspaceFolders?.[0];
@@ -517,13 +968,34 @@ async function showMcpServerStatus(context: vscode.ExtensionContext): Promise<vo
     else if (read.status === "invalid-json") targetB = `Unknown — ${claudeConfigPath()} is not valid JSON.`;
     else if (hasModelogServer(read.config, folder.uri.fsPath))
       targetB = `Registered for this project in ${claudeConfigPath()}.`;
-    else targetB = `Not registered for this project. Run "Modelog: Enable MCP Server" to add it.`;
+    else targetB = `Not registered for this project. Run "Modelog: Enable MCP Server (Claude Code)" to add it.`;
   }
 
-  void vscode.window.showInformationMessage("Modelog: MCP server status", {
-    modal: true,
-    detail: `VS Code (built-in MCP client):\n${targetA}\n\nClaude Code:\n${targetB}`,
-  });
+  const home = homedir();
+  const detail = [
+    `VS Code's MCP client — used by Copilot Chat:\n${targetA}`,
+    `Claude Code:\n${targetB}`,
+    `GitHub Copilot CLI:\n${cliStatusLine(copilotCliClient(home), home, "Copilot")}`,
+    `Codex:\n${cliStatusLine(codexClient(home), home, "Codex")}`,
+  ].join("\n\n");
+
+  void vscode.window.showInformationMessage("Modelog: MCP server status", { modal: true, detail });
+}
+
+/**
+ * "Not installed" and "installed but not set up" are different answers with
+ * different remedies, so an absent CLI is never reported as an unregistered
+ * one — the same three-state rule INSTALL-ux.md §3 applies to Ollama.
+ */
+function cliStatusLine(client: CliClient, home: string, commandSuffix: string): string {
+  if (!isOnPath(client.bin)) return `Not detected — "${client.bin}" is not on PATH here.`;
+
+  const registered = isRegisteredWithCli(client, home);
+  if (registered === undefined) return `Unknown — "${client.bin}" is on PATH but could not be run.`;
+
+  return registered
+    ? `Registered in ${client.configPath}.`
+    : `Not registered. Run "Modelog: Enable MCP Server (${commandSuffix})" to add it.`;
 }
 
 export function deactivate(): void {

@@ -16,6 +16,27 @@ The only entry point an extension has is `activate()`, fired by its `activationE
 
 This is not a limitation to work around. It is the model, and it is why first-run behaviour is a *product* decision rather than a packaging one.
 
+### 1.1 There *is* an uninstall-time hook
+
+**[verified 2026-10-23]**, by reading `ExtensionsLifecycle.postUninstall` out of the shipped 1.105 bundle. §1's "no installation-time hook" does not generalise to the other end of the lifecycle: `scripts["vscode:uninstall"]` in the manifest is real and is executed.
+
+A plain grep for the string finds only the manifest JSON schema, because the key is built at runtime as `` `vscode:${name}` ``. The parse is strict and the constraints are sharp:
+
+| Constraint | Consequence |
+| :--- | :--- |
+| The value must begin literally with `node ` | `parseScript` otherwise logs *"should be a node script"* and silently does nothing. `npm run x` is not expressible |
+| Path resolved against the extension install directory | `node ./dist/uninstall.js` |
+| Forked as a bare Node process | **No `vscode` module, no window, no way to ask the user anything** |
+| `runLifecycleHook(..., waitWithTimeout = true)` sets a 5000 ms timer, then `child.kill()` | A hard budget. The whole cleanup must fit, and any write inside it must be atomic, because the kill can land anywhere |
+| Runs on the VS Code **restart after** the uninstall, not at the click | Nothing can be reported to the user at the moment they act |
+| stdout/stderr are logged under the extension id | The only diagnostic channel |
+
+**The editor deletes the extension's storage itself**, immediately after the hook returns: `rm(globalStorageHome/<extension id>)`, unconditionally. Modelog's `modelog.db` and its deployed `mcp-server.mjs` therefore need no cleanup code, and the hook still sees that directory while it runs.
+
+**Consequence for design.** A deinstallation *wizard* is not expressible, for the same reason §1's install-time behaviour is not: there is no UI surface. Consent has to be collected earlier, by an ordinary command, with the hook as the unattended fallback for a user who simply clicks Uninstall. That is the split Modelog implements — `Modelog: Remove Modelog's Changes` does the asking, `src/uninstall.ts` runs the restorative subset of the same plan (`src/cleanup/plan.ts`) silently.
+
+Measured on the development machine: the full hook run takes ~1.4 s of the 5 s budget. An earlier version took 2.4 s because it probed each assistant by spawning its CLI (`copilot` alone costs ~417 ms per invocation); the probes now read the config files instead, and only the removal itself spawns.
+
 ---
 
 ## 2. The MCP server: two targets, two mechanisms

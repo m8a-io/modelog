@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { ClaudeConfig } from "./claudeConfig.ts";
 
 export type ReadConfigResult =
@@ -28,5 +28,22 @@ export function readClaudeConfig(path: string): ReadConfigResult {
  */
 export function backupAndWriteClaudeConfig(path: string, config: ClaudeConfig): void {
   copyFileSync(path, `${path}.bak`);
-  writeFileSync(path, JSON.stringify(config, null, 2) + "\n");
+  writeFileAtomically(path, JSON.stringify(config, null, 2) + "\n");
+}
+
+/**
+ * Write via a sibling temp file and a rename, so the target is either the old
+ * content or the new one and never a half-written file.
+ *
+ * This matters beyond ordinary tidiness because the same code runs inside VS
+ * Code's `vscode:uninstall` hook, which the editor **SIGKILLs after five
+ * seconds**. A kill landing inside a plain `writeFileSync` could leave a user
+ * with a truncated `~/.claude.json` — which holds their Claude Code auth state
+ * — or a truncated `settings.json`. `renameSync` within the same directory is
+ * atomic, so no window exists for that.
+ */
+export function writeFileAtomically(path: string, contents: string): void {
+  const temp = `${path}.modelog-tmp`;
+  writeFileSync(temp, contents);
+  renameSync(temp, path);
 }

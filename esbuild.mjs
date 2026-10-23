@@ -13,7 +13,7 @@ const common = {
 };
 
 /**
- * Three targets, because the parts run in different places.
+ * Four targets, because the parts run in different places.
  *
  *  - The extension host is a Node process inside VS Code. `vscode` is injected
  *    there at runtime, so it must be marked external or esbuild will try to
@@ -42,6 +42,19 @@ const targets = [
     ...common,
     entryPoints: ["src/webview/style.css"],
     outfile: "dist/webview.css",
+  },
+  {
+    ...common,
+    // VS Code's `vscode:uninstall` hook, forked as a bare Node process after
+    // the extension is gone. No `vscode` import is possible there, and the
+    // manifest entry must read `node ./dist/uninstall.js`, so the output has
+    // to be a plain `.js` that Node treats as CJS (this package declares no
+    // "type", so it does). See src/uninstall.ts.
+    entryPoints: ["src/uninstall.ts"],
+    outfile: "dist/uninstall.js",
+    platform: "node",
+    format: "cjs",
+    target: "node20",
   },
   {
     ...common,

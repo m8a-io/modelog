@@ -79,3 +79,28 @@ export function withoutModelogServer(config: ClaudeConfig, projectPath: string):
 export function hasModelogServer(config: ClaudeConfig, projectPath: string): boolean {
   return Boolean(config.projects?.[projectPath]?.mcpServers?.modelog);
 }
+
+/**
+ * Removes the `modelog` entry from **every** project, for uninstall cleanup.
+ *
+ * The per-project {@link withoutModelogServer} is right for `Disable MCP
+ * Server`, where the user is acting on the folder in front of them. It is
+ * wrong for cleanup: Enable can have been run in any number of folders over
+ * time, and leaving the others behind would leave Claude Code trying to spawn
+ * a deleted `mcp-server.mjs` in each of them. Returns the input unchanged
+ * (same reference) when no project carried one.
+ */
+export function withoutModelogServerEverywhere(config: ClaudeConfig): {
+  config: ClaudeConfig;
+  removedFrom: string[];
+} {
+  const removedFrom = Object.keys(config.projects ?? {}).filter((path) =>
+    hasModelogServer(config, path),
+  );
+  if (removedFrom.length === 0) return { config, removedFrom };
+
+  return {
+    config: removedFrom.reduce(withoutModelogServer, config),
+    removedFrom,
+  };
+}
