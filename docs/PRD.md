@@ -376,7 +376,152 @@ This is a genuinely different kind of data from anything Modelog stores today, a
 2. **"Which turns" has no natural definition.** Claude Code has no native concept of "the 8 turns I just did with Opus." Last N turns? Everything since the last rating? Everything in the current session? Getting this wrong misattributes a rating to turns it wasn't actually about.
 3. **Number-only, or a note too?** A bare 1–10 score stays clearly outside §8.1's content boundary. A free-text justification ("nailed the refactor in one shot") would be the first time anything resembling prompt-adjacent content enters the store, and needs its own explicit reasoning, not an assumption it's fine because the rest of the field is numeric.
 
-The §6 Marker model already has a slot for exactly this: `provenance: "user"`, "a manual annotation," sitting alongside `observed` and `inferred` since the original data model was written — though in code today `provenance` is narrowed to the literal `"observed"` (`src/mcp/tools.ts`), so widening it is itself part of the work, not just reusing an existing type. The taxonomy isn't the gap — the write path and the turn-window definition are. Whatever ships must still keep a `user`-provenance rating visibly opinion, never blended into the honest/measured figures (§8.2) as if it were one of them.
+The §6 Marker model already has a slot for exactly this: `provenance: "user"`, "a manual annotation," sitting alongside `observed` and `inferred` since the original data model was written — though in code today `provenance` is narrowed to the literal `"observed"` (`src/mcp/tools.ts`), so widening it is itself part of the work, not just reusing an existing type. The taxonomy isn't the gap — the write path and the turn-window definition are. **§7.19 takes this forward**: it specifies the record, the authorship rule, and the provenance classes a rating would have to sit inside. Whatever ships must still keep a `user`-provenance rating visibly opinion, never blended into the honest/measured figures (§8.2) as if it were one of them.
+
+#### 7.19 Session outcome records (candidate — not scoped)
+
+**Raised 2026-10-29.** §7.18 argues *why* Modelog needs outcome data and leaves the write path open. This section specifies the record that data lands in, and the one rule that governs who is allowed to author it.
+
+The motivating proposal was a developer-invoked "summarize the work we just did" tool over MCP, which would also note behavioural changes — a mid-session switch to a weaker model, a dependency the AI added. The goal is right. The mechanism, as stated, defeats itself.
+
+##### The model never authors the record
+
+A model summarising its own session is grading its own homework. It cannot observe whether the code works, it has no access to what happened after the session ended, and a tidy narrative is the cheapest thing it can produce. Any stated requirement that the log be tamper-resistant rules this out on its own terms.
+
+Routing it through MCP compounds the problem structurally. `openReadOnly()` opens SQLite with `readOnly: true` (`src/mcp/readOnlyStore.ts`), so invariant 6 is enforced by the database rather than by convention. A summary-write tool there would hand the pen to the entity under evaluation *and* dissolve the guarantee that makes the bridge safe to expose at all.
+
+> **Rule:** a record whose only provenance is model-generated is not stored. Generated text may exist as a **draft the developer edits before it is committed**, and is persisted flagged as such — never summed, never blended into a measured figure (§8.2), never the sole basis of a claim about outcome.
+
+This requires widening §6's `provenance` enum with a fourth value — `generated` — alongside `observed`, `inferred` and `user`. Note that §6's `user` is itself still aspirational: the code narrows `provenance` to the literal `"observed"` today (`src/mcp/tools.ts`), so the enum work is part of this, not a prerequisite already met.
+
+##### Three honest sources, kept separate
+
+The existing `markers` path is already the right shape and should be extended rather than replaced: `developerModelSwitches()` *derives* markers from logs; nobody authors them.
+
+| Class | Provenance | Witness | Examples |
+| :--- | :--- | :--- | :--- |
+| **Measured** | `observed` | The session logs | Mid-session model switches, cost, duration, iterations, sidechain ratio, entrypoint mix |
+| **Environment-observed** | `observed` | The repository and working tree | Was the work committed, reverted, amended, force-pushed away; dependency added (`package.json` diff); config or tooling changed |
+| **Attested** | `user` | The developer | Shipped / reverted / abandoned / still-open. One keystroke, not prose |
+| **Drafted** | `generated` | The model | A proposed label the developer edits. Never stands alone |
+
+The second row is the substantive addition and answers the "notice what technically changed" half of the proposal **without asking the model anything**. Modelog does not need the AI to report that it added a state library; the dependency manifest changed. The repository cannot flatter itself.
+
+The third row must stay near-zero cost to supply. An attestation that takes prose will not be given on a Friday evening, and a sparse outcome column is worse than none — it biases toward sessions the developer felt like writing up.
+
+##### What the attestation actually asks (specified 2026-10-29)
+
+Two fields, and a third that is measured rather than asked:
+
+1. **A rating, 1–10.** 10 optimal, 1 a total waste of time. `user` provenance — shown as opinion, never blended into a measured figure (§8.2). Matches §7.18's `/effectiveness 8` sketch. **One caution deferred, not dismissed:** a 10-point scale is comparable against *the same developer's own history*, which is all Parts 1–2 need. It stops being comparable the moment it is aggregated across people (§7.12), where one person's 7 is another's 9. Anchor the scale before team rollup, not after.
+2. **A 1–3 sentence summary of the work accomplished.** This has been a logging goal since the outset and is **the first content-adjacent value to enter the store** — exactly §7.18's third open question. Resolvable on existing terms rather than by exception: developer-authored or developer-approved, local-only, and it leaves the machine only through §7.11's explicit sync. Where the model drafts it — which is the expected case, since a draft is what makes the field cheap to fill — it is `generated` until edited, per the authorship rule above.
+3. **Time worked.** Not asked. Derived, and not a single number — see §7.21, which exists because specifying this field showed there is no honest scalar answer.
+
+##### Survival as the headline metric
+
+The strongest available outcome signal needs no cooperation from the model and no discipline from the developer: **how much AI-assisted code is still in `HEAD` later.**
+
+> *"You spent $400 on Opus last month; 82% of those lines survive at 30 days."*
+
+That is measured, reconstructible from history after the fact, resistant to being gamed in the moment, and it is the question an enterprise buyer is actually asking. It also degrades gracefully — a repo with no commits during a session simply has no survival figure, which is a visible gap in the §8.2 sense rather than a zero.
+
+Open: the attribution window (which commits belong to which session), squash-merge and rebase workflows that destroy the mapping, and whether survival is measured per line, per hunk, or per file.
+
+##### `/handoff` as the trigger, not the feature
+
+A handoff command bundles two separable things, and they belong to different products:
+
+- **As a logging trigger** — in scope. End-of-session is the one moment a developer will answer "did that work?", which makes it the natural place to collect the `user` attestation above.
+- **As a cost-saving workflow** — out of scope here. Shorter sessions save money, but performing the handoff is a Claude Code skill or plugin, not an extension feature.
+
+> **Independence rule:** Modelog may *measure* whether a handoff practice saved money. It must not *perform* the handoff it then scores. A measurement tool that also dispenses the advice it evaluates has no standing to report the result.
+
+##### `/close` as the counterpart to `/handoff` (initial idea, 2026-10-29)
+
+Two commands, one record. They differ only in whether anything continues afterwards:
+
+| | Ends the session | Transfers context | Asks the attestation |
+| :--- | :--- | :--- | :--- |
+| `/handoff` | yes | yes — to a successor session | yes |
+| `/close` | yes | no | yes |
+
+`/close` exists because **a handoff is the minority case.** Most sessions end with no successor: the work is done, or the developer moves to something unrelated. Without a counterpart command, those sessions have no way to be closed out at all, and the attestation surface would only ever cover the subset of work that happened to continue somewhere.
+
+##### The dominant case is neither command
+
+Observed directly, 2026-10-29, and the reason this subsection exists at all: *"Most of the time, I'd just leave the chat session as is and do some other task or start some other session."*
+
+Sessions overwhelmingly end by **abandonment** — no command, no closing act, the window simply stops being used. That has a consequence for the whole outcome dataset, and it sharpens the sparseness risk already noted above into something with a named cause:
+
+> A command-triggered attestation captures the minority of sessions, **and a biased minority** — the ones that ended tidily enough for someone to run a command. Sessions abandoned in frustration are exactly the ones a rating would be most informative about, and exactly the ones least likely to get one.
+
+So a third path is **required, not optional**: detect an abandoned session — no turns for some interval — and ask retroactively.
+
+Open, to be worked through later:
+
+- How long with no turns before a session counts as abandoned, and whether that can be derived rather than configured (§7.21's idle threshold is the same question in a different costume — both should be answered once).
+- Where a retroactive prompt surfaces without becoming a nag. §8.1's no-dark-patterns bar applies; compare §11 row 15's resolution on the Copilot setting, where prompting at all was rejected.
+- **Whether a retroactive rating is the same measurement as one given at the keyboard.** Rating a session three days later is recalled, not observed. If the two are stored identically, a systematic recall effect becomes invisible — so provenance likely needs to record *when* the attestation was given relative to the work, not only who gave it.
+
+Distribution caveat `[untested]`: a VS Code extension is not believed to be able to contribute a slash command into Claude Code — that would ship as a plugin or skill alongside the extension, a different channel with a different install story. Verify before designing around it.
+
+#### 7.20 Cache-retention assistance (candidate — **low priority**)
+
+**Raised 2026-10-29, explicitly deprioritised below everything else in Part 2.**
+
+Third-party plugins ship a prompt-cache "keepalive" that pings the API periodically so a session survives a lunch break without losing its cache. Offering something similar was considered as developer-facing cost relief.
+
+**The arithmetic should be checked before any of it is built.** Against this repo's own `data/pricing.json` ratios — cache read `0.1x`, 5-minute cache write `1.25x`, 1-hour cache write `2.0x` of base input — for a 60-minute break over a cached prefix of P tokens:
+
+| Strategy | Extra cost |
+| :--- | :--- |
+| Keepalive ping every 4.5 min (~13 cache reads) | **+1.30 × P** |
+| Let the cache lapse; pay a cache write on resume | **+1.15 × P** |
+| Use the 1-hour cache TTL | **+0.75 × P** |
+
+If that holds, the keepalive **costs more than it saves** past roughly 50 minutes, and the option it competes with is a configuration flag rather than a feature. Modelog should not ship a cost-saving device on a plausible story about caching — that is precisely the failure mode §1 describes in other tools.
+
+It is, however, a cheap and well-formed experiment: it needs no new code, only a measured session, and a confirmed result is publishable as Modelog's thesis applied to a popular tool. **Measure first; treat shipping anything as conditional on the measurement.**
+
+#### 7.21 Session time as a family of measures (candidate — not scoped)
+
+**Raised 2026-10-29.** Specifying "time worked" exposed that there is no single honest number. `durationMs` today is literally last turn minus first turn (`src/metrics/aggregate.ts`) — wall clock, lunch included — and calling that "time worked" would be the kind of plausible-sounding figure §8.2 exists to prevent.
+
+The resolution is not a better single number but **a family of them**, each separately defined:
+
+| Measure | Derivable from | Status |
+| :--- | :--- | :--- |
+| Elapsed wall-clock | `turn.ts` deltas | Exists as `durationMs` |
+| Inter-turn gap distribution | `turn.ts` deltas | Derivable now, not computed |
+| Active time (gaps over a threshold excluded) | `turn.ts` deltas + a stated threshold | Needs the threshold decision below |
+| Time the AI needed | Per-turn latency | **Not captured — and source-asymmetric** |
+| Time the developer spent | Residual of the above | Only as honest as its inputs |
+
+##### The source asymmetry, measured 2026-10-29
+
+| Source | What the log states |
+| :--- | :--- |
+| Copilot Chat | The span carries `dur` **and** `attrs.ttft` — latency and time-to-first-token, stated outright |
+| Copilot CLI | `usage.duration` and `usage.timeToFirstTokenMs`, stated outright |
+| Claude Code | **Only `timestamp` per record.** No duration, no TTFT anywhere in the record |
+
+So "time the AI needed" is **measured** on two sources and can only be **inferred** on the third, from deltas between consecutive records. That is the same shape of problem §4.5 handles for cost, and it takes the same answer: a stated Copilot latency and a derived Claude Code one are not the same measurement and must not be summed, averaged together, or drawn on one axis without saying which is which. Provenance (§6) carries the distinction — `observed` vs `inferred` — and already exists for it.
+
+##### The threshold is a judgement call and must be visible
+
+Active time requires deciding what gap counts as "away." There is no correct value. The requirement is therefore procedural rather than numeric: the threshold is **stated wherever the figure is shown, configurable, and never silently defaulted**. A number whose definition the reader cannot see is not an honest number.
+
+##### Why it is worth measuring at all
+
+This is deliberately recorded as a hypothesis, not a benefit. The motivating intuition was "I don't know if it helps, but it is measurable" — which is the right instinct and the right order.
+
+The strongest candidate hypothesis: **cost-per-turn is only half of a trade.** A model that costs twice as much per turn but finishes the work in half the wall-clock may be cheaper in the unit an employer actually pays — developer time. Modelog cannot currently express that trade at all, and it is precisely the argument a developer makes informally when defending an expensive model. Related, and equally unmeasured: whether delegation to sub-agents (§7.23's Delegation section) trades money for time, and how much of a session a developer spends *waiting*.
+
+If the data shows no relationship, that is a publishable result too, and cheaper to find out than to assume.
+
+##### Requirement
+
+`Turn` gains latency fields under `capture.ts` versioning. Absent is `null`, never zero — a Claude Code turn has no stated latency and must not read as an instantaneous one.
 
 ### Part 3 — Enterprise & Web
 
@@ -400,7 +545,28 @@ Product usage metrics, strictly opt-in, incentivized by unlocking a "Global Benc
 
 #### 7.14 Website (sub-project)
 
-Marketing site, documentation, enterprise signup and billing. Scoped separately.
+Marketing site, documentation, enterprise signup and billing. Scoped separately, and built in a **separate private repository** on m8a's own CI/CD. The invariants in §8.0 are single-sourced *here*, in the public repository, and the backend inherits them — notably that "the extension and any future backend never read content." That the commitment is published where customers can read it is the point; it must not be restated in the private repo, where the two copies would drift.
+
+##### Goal #1 — cross-workspace aggregation (Personal edition)
+
+**Established 2026-10-29, and it is the website's first job rather than a later one.**
+
+A developer running several workspaces at once — the normal case in remote or multi-repo work — gets **one Modelog instance per workspace**, each with its own store, each reporting only what happened inside it. Nothing is invisible and nothing is miscounted; there is simply no surface that adds them up. The developer's real total across three concurrent workspaces is a figure only they can produce, by hand, from three dashboards.
+
+This is a **third distinct gap**, and it has been conflated with two others — worth stating plainly because the conflation misdirected a strategic argument on 2026-10-29:
+
+| | The gap | Where it lives |
+| :--- | :--- | :--- |
+| Cost silently stops being reported after a billing-state change | [#10](https://github.com/m8a-io/modelog/issues/10) | Extension |
+| A session's log is never written to disk at all (setting scope, surface coverage, retention) | §7.1, [#19 row](#11-open-questions--risks) | Extension |
+| Per-workspace stores are complete but **never aggregated** | **This section** | Website |
+
+Only the third is a website problem, and it is the one that justifies a Personal edition on its own merits — not a hosted copy of something the extension already does, but the only place a multi-workspace developer can see their own total.
+
+**Constraints inherited, not re-decided:** aggregation is a §7.11 sync operation — derived metrics and labels only, never content, never silent. Cross-source totals remain forbidden (§4.5); aggregating three workspaces does not license summing Copilot credits into dollars.
+
+**The extension-side half belongs in this repo:** aggregation is only possible if the extension exposes a stable, identifiable per-workspace export with a workspace identity that survives restarts. That requirement is public and testable here, independent of whatever the private backend does with it.
+
 
 ### Cross-Cutting — Distribution & Environments
 
@@ -548,6 +714,7 @@ Every optional dependency (Ollama, a given assistant's logs, network) defaults c
 | 10 | ~~Cache-tier pricing needs a sourced, versioned rate table.~~ **Resolved: `data/pricing.json`** (§8.2). | Closed |
 | 11 | Three distinct models appear across local sessions, so the model-switch anchor is viable on real data — but sessions may mix models mid-session. Anchor logic must handle intra-session switches. | Part 1 |
 | 24 | **Should Modelog let the developer rate a stretch of work's effectiveness** (e.g. `/effectiveness 8`), so cost can eventually be read alongside a subjective quality signal? Raised 2026-10-08 — see §7.18. Needs: a write tool (breaks the §7.9 read-only invariant), a definition of "which turns" a rating covers, and a decision on number-only vs. a free-text note (the latter edges toward §8.1's content boundary). | Part 2 — product decision |
+| 25 | **Does Modelog's value survive developers moving to autonomous AI workflows?** Raised 2026-10-29. If AI writes the bug report, fixes it, runs the tests, reviews the diff and opens the PR, the interactive IDE session Modelog reads may shrink as a share of all AI work. **The assessment is that the thesis strengthens and the capture surface is what is at risk — a coupling problem, not a value problem.** (a) Measurement matters *more* unattended: a developer in the loop is the monitoring, because a bad model feels wrong and they switch; with nobody watching, model and cost drift are invisible until the invoice or the incident. (b) The survival metric (§7.19) gets *better* — if AI opens the PRs then git is the complete record, every unit of work has a merge or a revert, and attribution gets easier. (c) The human's "I own this" review *is* §7.19's attestation; under autonomy it moves from end-of-session to PR approval, which is a **better** capture point — durable, timestamped, in git, not dependent on anyone remembering a command. **Consequence for how this repo is built:** `service.ts`, `metrics/`, `ingest/` and `store/` importing no `vscode` is not merely a testability rule, as `CLAUDE.md` frames it. It is what allows the measurement core to be re-hosted in CI, in a pipeline, or in a backend without a rewrite, and should be defended as a commercial asset. m8a does not replace that core; it is a **host** for it. **What would change this answer:** evidence the core cannot in fact be lifted out, or that survival is unattributable under squash-merge and rebase workflows. Neither is tested yet. | All — positioning |
 
 ---
 
