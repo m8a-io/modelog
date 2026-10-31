@@ -8,6 +8,7 @@ export type { Store } from "./store.ts";
 
 export interface StoreResult {
   store: Store;
+  kind: "sqlite" | "file";
   /** Set when we had to fall back — surfaced as an ingest-health notice. */
   warning?: string;
 }
@@ -27,10 +28,11 @@ export async function createStore(storageDir: string): Promise<StoreResult> {
 
   const sqlite = await loadSqlite();
   if (sqlite) {
-    return { store: new SqliteStore(sqlite, dbPath(storageDir)) };
+    return { store: new SqliteStore(sqlite, dbPath(storageDir)), kind: "sqlite" };
   }
   return {
     store: new FileStore(join(storageDir, "modelog.json")),
+    kind: "file",
     warning:
       "node:sqlite is unavailable in this VS Code build; using the file store. " +
       "Metrics are unaffected, but large histories will load more slowly.",

@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/m8a-io/modelog/issues"
   },
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "Modelog",
   "license": "MIT",
   "icon": "images/modelog-logo-128x128.png",
@@ -135,8 +135,28 @@
       {
         "command": "modelog.removeChanges",
         "title": "Modelog: Remove Modelog's Changes"
+      },
+      {
+        "command": "modelog.reportIssue",
+        "title": "Modelog: Report Issue"
+      },
+      {
+        "command": "modelog.showLog",
+        "title": "Modelog: Show Log"
+      },
+      {
+        "command": "modelog.triggerTestError",
+        "title": "Modelog: Trigger Test Error (Development)"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "modelog.triggerTestError",
+          "when": "modelog.diagnosticsTest"
+        }
+      ]
+    },
     "configuration": {
       "title": "Modelog",
       "properties": {

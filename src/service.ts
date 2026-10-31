@@ -117,6 +117,7 @@ export interface ServiceOptions {
  */
 export class ModelogService {
   private store!: Store;
+  private storeKind: "sqlite" | "file" | undefined;
   private table!: RateTable;
   private warnings: string[] = [];
   private opts: ServiceOptions;
@@ -133,8 +134,9 @@ export class ModelogService {
         ? { mode: configured, detected: false, rawType: null }
         : detectBilling();
 
-    const { store, warning } = await createStore(this.opts.storageDir);
+    const { store, kind, warning } = await createStore(this.opts.storageDir);
     this.store = store;
+    this.storeKind = kind;
     if (warning) this.warnings.push(warning);
 
     const pricing: PricingFile = JSON.parse(
@@ -463,6 +465,11 @@ export class ModelogService {
 
   exportJson(): string {
     return this.store.exportJson();
+  }
+
+  /** Which store backend opened, for bug reports. Undefined until init() has opened one. */
+  storageKind(): "sqlite" | "file" | undefined {
+    return this.storeKind;
   }
 
   dispose(): void {
