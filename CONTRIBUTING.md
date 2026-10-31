@@ -18,6 +18,15 @@ Tests are plain TypeScript run by `node --test` — no test framework dependency
 
 Press <kbd>F5</kbd> with `modelog` as the workspace root. A second window opens titled **[Extension Development Host]** — it opens with no folder, which is correct and expected. Run **Modelog: Open Dashboard** from the command palette there.
 
+### Testing error reporting
+
+Two development-only hooks exercise the reporting path end to end. Neither is available in an installed VSIX.
+
+- **A failing command.** In the Extension Development Host, run **Modelog: Trigger Test Error (Development)**.
+- **A failed activation.** Choose the **Run Modelog (simulate activation failure)** launch configuration in Run and Debug. It sets `MODELOG_TEST_ACTIVATION_FAILURE=1`. Other commands should still be registered: **Enable Copilot Analysis** should still run, while **Open Dashboard** should explain that Modelog could not start.
+
+Each simulated error message includes a path under your home directory. That path should appear in the notification and in `Modelog: Show Log`, but **not** in the Report Issue preview or the GitHub draft.
+
 ## Architecture
 
 ```
@@ -27,11 +36,12 @@ src/
   ingest/           adapters (claudeCode, copilot), scanner, billing detect
   metrics/          cost.ts (integer engine), aggregate.ts (pure)
   store/            Store interface; sqliteStore (node:sqlite) + fileStore fallback
+  diagnostics/      allowlisted bug-report payload (pure)
   ui/               panel.ts (webview host), protocol.ts (shared message contract)
   webview/          runs in the browser context — renders only
 ```
 
-`service.ts`, `metrics/`, `ingest/`, and `store/` import no `vscode`, so they're exercisable headlessly with a plain Node script. The webview computes nothing — the host sends a finished, pre-formatted view model.
+`service.ts`, `metrics/`, `ingest/`, `store/`, and `diagnostics/` import no `vscode`, so they're exercisable headlessly with a plain Node script. The webview computes nothing — the host sends a finished, pre-formatted view model.
 
 ## Documentation
 

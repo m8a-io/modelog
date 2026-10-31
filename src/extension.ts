@@ -1,4 +1,4 @@
-import { homedir } from "node:os";
+import { homedir, release } from "node:os";
 import { join, resolve } from "node:path";
 import * as vscode from "vscode";
 import { DashboardPanel } from "./ui/panel.ts";
@@ -28,8 +28,26 @@ import { findCopilotLogs } from "./ingest/copilot.ts";
 import { planCleanup, runCleanup } from "./cleanup/plan.ts";
 import { footprintPath, recordCopilotLogging } from "./cleanup/footprint.ts";
 import { findSettingsFileWith, listProfiles, settingsCandidates } from "./cleanup/settings.ts";
+import {
+  NEW_ISSUE_URL,
+  buildIssueReport,
+  issueUrl,
+  summarizeFailure,
+  type ActivationStatus,
+  type FailureSummary,
+  type ReportEnvironment,
+} from "./diagnostics/report.ts";
 
 let service: ModelogService | undefined;
+
+/** Full errors, stacks included, stay here on the user's machine. A report carries only the allowlist in `diagnostics/report.ts`. */
+let log: vscode.LogOutputChannel | undefined;
+let activation: ActivationStatus = { state: "starting" };
+/** The most recent failure this session, so "Modelog: Report Issue" can still describe it after its notification is gone. */
+let lastFailure: FailureSummary | undefined;
+
+/** Thrown by a command that needs the analytics service when it is not running. */
+class ServiceUnavailableError extends Error {}
 
 /**
  * Target A's refresh signal, hoisted to module scope so commands can fire it.
@@ -45,22 +63,26 @@ let didChangeMcpDefinitions: vscode.EventEmitter<void> | undefined;
 /**
  * Called once by VS Code on the "onStartupFinished" activation event declared
  * in package.json. Everything disposable goes on context.subscriptions.
+ *
+ * Commands are registered **before** the service starts. The palette lists
+ * every command from the manifest whether or not activate() got that far, so
+ * a failure before registration leaves the user with VS Code's bare
+ * "command not found" (issue #25) and no way to report it. Registered first,
+ * every command still runs — those that need the service explain why they
+ * cannot, and offer the report.
  */
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const cfg = () => vscode.workspace.getConfiguration("modelog");
+  activation = { state: "starting" };
+  lastFailure = undefined;
 
-  service = new ModelogService({
-    // VS Code hands every extension a private directory for its own data.
-    storageDir: context.globalStorageUri.fsPath,
-    extensionDir: context.extensionUri.fsPath,
-    logPaths: cfg().get<string[]>("logPaths", ["~/.claude/projects"]),
-    billingMode: cfg().get<string>("billingMode", "subscription"),
-    copilotLogPaths: copilotLogPaths(context, cfg),
-    copilotCliLogPaths: cfg().get<string[]>("copilotCliLogPaths", ["~/.copilot/session-state"]),
-    codexLogPaths: cfg().get<string[]>("codexLogPaths", ["~/.codex/sessions"]),
-  });
+  log = vscode.window.createOutputChannel("Modelog", { log: true });
+  context.subscriptions.push(log);
 
-  await service.init();
+  // The test hooks exist only in the Extension Development Host (F5) and in
+  // extension tests, never in an installed VSIX.
+  const diagnosticsTest = context.extensionMode !== vscode.ExtensionMode.Production;
+  void vscode.commands.executeCommand("setContext", "modelog.diagnosticsTest", diagnosticsTest);
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.command = "modelog.openDashboard";
@@ -74,42 +96,93 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     DashboardPanel.refreshIfOpen();
   };
 
+  const command = (id: string, run: () => unknown) =>
+    vscode.commands.registerCommand(id, async () => {
+      try {
+        await run();
+      } catch (e) {
+        await handleCommandFailure(context, commandTitle(context, id), e);
+      }
+    });
+
   context.subscriptions.push(
     status,
-    vscode.commands.registerCommand("modelog.openDashboard", () => {
-      if (service) DashboardPanel.show(context, service);
-    }),
-    vscode.commands.registerCommand("modelog.rescan", () => {
-      service?.rescan();
+    command("modelog.openDashboard", () => DashboardPanel.show(context, requireService())),
+    command("modelog.rescan", () => {
+      requireService().rescan();
       refreshAll();
       void vscode.window.showInformationMessage("Modelog: rescan complete.");
     }),
-    vscode.commands.registerCommand("modelog.exportData", async () => {
-      if (!service) return;
+    command("modelog.exportData", async () => {
+      const svc = requireService();
       const uri = await vscode.window.showSaveDialog({
         filters: { JSON: ["json"] },
         saveLabel: "Export Modelog data",
       });
       if (!uri) return;
-      await vscode.workspace.fs.writeFile(uri, Buffer.from(service.exportJson(), "utf8"));
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(svc.exportJson(), "utf8"));
       void vscode.window.showInformationMessage(`Modelog: exported to ${uri.fsPath}`);
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("modelog")) refreshAll();
     }),
-    vscode.commands.registerCommand("modelog.enableMcpServer", () => enableMcpServer(context, cfg)),
-    vscode.commands.registerCommand("modelog.disableMcpServer", () => disableMcpServer()),
-    vscode.commands.registerCommand("modelog.enableMcpServerCopilot", () => enableMcpServerCopilot(context, cfg)),
-    vscode.commands.registerCommand("modelog.disableMcpServerCopilot", () => disableMcpServerCopilot()),
-    vscode.commands.registerCommand("modelog.enableMcpServerCodex", () => enableMcpServerViaCli(context, cfg, codexClient(homedir()))),
-    vscode.commands.registerCommand("modelog.disableMcpServerCodex", () => disableMcpServerViaCli(codexClient(homedir()))),
-    vscode.commands.registerCommand("modelog.copyMcpConfiguration", () => copyMcpConfiguration(context, cfg)),
-    vscode.commands.registerCommand("modelog.mcpServerStatus", () => showMcpServerStatus(context)),
-    vscode.commands.registerCommand("modelog.enableCopilotAnalysis", () => enableCopilotAnalysis(context)),
-    vscode.commands.registerCommand("modelog.disableCopilotAnalysis", () => disableCopilotAnalysis()),
-    vscode.commands.registerCommand("modelog.copilotStatus", () => showCopilotStatus(context, cfg)),
-    vscode.commands.registerCommand("modelog.removeChanges", () => removeModelogChanges(context)),
+    command("modelog.enableMcpServer", () => enableMcpServer(context, cfg)),
+    command("modelog.disableMcpServer", () => disableMcpServer()),
+    command("modelog.enableMcpServerCopilot", () => enableMcpServerCopilot(context, cfg)),
+    command("modelog.disableMcpServerCopilot", () => disableMcpServerCopilot()),
+    command("modelog.enableMcpServerCodex", () => enableMcpServerViaCli(context, cfg, codexClient(homedir()))),
+    command("modelog.disableMcpServerCodex", () => disableMcpServerViaCli(codexClient(homedir()))),
+    command("modelog.copyMcpConfiguration", () => copyMcpConfiguration(context, cfg)),
+    command("modelog.mcpServerStatus", () => showMcpServerStatus(context)),
+    command("modelog.enableCopilotAnalysis", () => enableCopilotAnalysis(context)),
+    command("modelog.disableCopilotAnalysis", () => disableCopilotAnalysis()),
+    command("modelog.copilotStatus", () => showCopilotStatus(context, cfg)),
+    command("modelog.removeChanges", () => removeModelogChanges(context)),
+    command("modelog.reportIssue", () => reportIssue(context, lastFailure)),
+    command("modelog.showLog", () => log?.show()),
+    command("modelog.triggerTestError", () => triggerTestError(diagnosticsTest)),
   );
+
+  // Independent of the service, so a store or rate-table failure does not
+  // also take the MCP bridge down with it.
+  try {
+    registerMcpProvider(context, cfg);
+  } catch (e) {
+    recordFailure("MCP server registration", e);
+  }
+
+  try {
+    if (diagnosticsTest && process.env.MODELOG_TEST_ACTIVATION_FAILURE === "1") {
+      throw testError("activation", "EMODELOGTESTACTIVATION");
+    }
+
+    const svc = new ModelogService({
+      // VS Code hands every extension a private directory for its own data.
+      storageDir: context.globalStorageUri.fsPath,
+      extensionDir: context.extensionUri.fsPath,
+      logPaths: cfg().get<string[]>("logPaths", ["~/.claude/projects"]),
+      billingMode: cfg().get<string>("billingMode", "subscription"),
+      copilotLogPaths: copilotLogPaths(context, cfg),
+      copilotCliLogPaths: cfg().get<string[]>("copilotCliLogPaths", ["~/.copilot/session-state"]),
+      codexLogPaths: cfg().get<string[]>("codexLogPaths", ["~/.codex/sessions"]),
+    });
+    try {
+      await svc.init();
+    } catch (e) {
+      svc.dispose();
+      throw e;
+    }
+    // Published only once initialised: a command arriving mid-init must see
+    // "starting", not a service whose store is not open yet.
+    service = svc;
+  } catch (e) {
+    const failure = recordFailure("Activation", e);
+    activation = { state: "failed", failure };
+    // Not awaited: activate() must not block on a notification nobody answers.
+    void notifyFailure(context, `Modelog could not start: ${messageOf(e)}`, failure);
+    return;
+  }
+  activation = { state: "ready" };
 
   // No background watcher (DESIGN.md §5): nobody keeps the dashboard open
   // while they work, so a live tail would mostly run unseen. The status bar
@@ -117,12 +190,156 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // actually brought in front of someone (DashboardPanel.rescanAndRefresh),
   // and "Modelog: Rescan" covers everything else.
   setTimeout(() => {
-    service?.rescan();
-    refreshAll();
+    try {
+      service?.rescan();
+      refreshAll();
+    } catch (e) {
+      const failure = recordFailure("Startup scan", e);
+      void notifyFailure(context, `Modelog could not scan your session logs: ${messageOf(e)}`, failure);
+    }
   }, 0);
 
   refreshAll();
-  registerMcpProvider(context, cfg);
+}
+
+// --- Failure handling and issue reporting ---------------------------------
+
+function requireService(): ModelogService {
+  if (!service) throw new ServiceUnavailableError("Modelog's analytics service is not running.");
+  return service;
+}
+
+/** The palette title from the manifest, so a report names the command exactly as the user saw it. */
+function commandTitle(context: vscode.ExtensionContext, id: string): string {
+  const commands: Array<{ command: string; title: string }> =
+    context.extension.packageJSON?.contributes?.commands ?? [];
+  return commands.find((c) => c.command === id)?.title ?? id;
+}
+
+async function handleCommandFailure(
+  context: vscode.ExtensionContext,
+  operation: string,
+  e: unknown,
+): Promise<void> {
+  if (e instanceof ServiceUnavailableError) {
+    if (activation.state === "failed") {
+      await notifyFailure(
+        context,
+        `Modelog could not start, so "${operation}" is unavailable.`,
+        activation.failure,
+      );
+    } else {
+      void vscode.window.showInformationMessage("Modelog is still starting. Try again in a moment.");
+    }
+    return;
+  }
+
+  const failure = recordFailure(operation, e);
+  await notifyFailure(context, `${operation} failed: ${messageOf(e)}`, failure);
+}
+
+function recordFailure(operation: string, e: unknown): FailureSummary {
+  log?.error(`${operation} failed`);
+  log?.error(e instanceof Error ? e : String(e));
+  lastFailure = summarizeFailure(operation, e);
+  return lastFailure;
+}
+
+/** The full message is shown locally — it is the user's own machine. Only the report is allowlisted. */
+async function notifyFailure(
+  context: vscode.ExtensionContext,
+  message: string,
+  failure: FailureSummary,
+): Promise<void> {
+  const REPORT = "Report Issue";
+  const SHOW_LOG = "Show Log";
+  const choice = await vscode.window.showErrorMessage(message, REPORT, SHOW_LOG);
+  if (choice === REPORT) await reportIssue(context, failure);
+  else if (choice === SHOW_LOG) log?.show();
+}
+
+function messageOf(e: unknown): string {
+  const text = e instanceof Error ? e.message : String(e);
+  return text.length > 300 ? `${text.slice(0, 300)}…` : text;
+}
+
+/**
+ * Shows the exact report before anything leaves the machine, then opens it as
+ * a GitHub draft or copies it. Never submits: the user posts it, edits it, or
+ * closes the tab.
+ */
+async function reportIssue(context: vscode.ExtensionContext, failure: FailureSummary | undefined): Promise<void> {
+  const report = buildIssueReport(reportEnvironment(context), failure);
+
+  const OPEN = "Open GitHub Draft";
+  const COPY = "Copy Report";
+  const choice = await vscode.window.showInformationMessage(
+    "Modelog: report a problem on GitHub?",
+    {
+      modal: true,
+      detail:
+        "Opening GitHub sends exactly the text below to github.com as a pre-filled issue draft. " +
+        "Nothing is posted until you submit it there, and you can edit it first.\n\n" +
+        `Title: ${report.title}\n\n${report.body}`,
+    },
+    OPEN,
+    COPY,
+  );
+
+  if (choice === OPEN) {
+    // Deliberately a string, not vscode.Uri.parse(): a Uri is decoded and
+    // re-encoded on its way to the browser, which turns an encoded "&" or "="
+    // inside the body back into a query separator. VS Code opens an http(s)
+    // string as-is (openerService: "open the url-string AS IS").
+    await vscode.env.openExternal(issueUrl(report) as unknown as vscode.Uri);
+  } else if (choice === COPY) {
+    await vscode.env.clipboard.writeText(`${report.title}\n\n${report.body}`);
+    const OPEN_BLANK = "Open GitHub";
+    const next = await vscode.window.showInformationMessage(
+      "Modelog: report copied. Paste it into a new GitHub issue.",
+      OPEN_BLANK,
+    );
+    if (next === OPEN_BLANK) await vscode.env.openExternal(vscode.Uri.parse(NEW_ISSUE_URL));
+  }
+}
+
+function reportEnvironment(context: vscode.ExtensionContext): ReportEnvironment {
+  const copilotChat = vscode.extensions.getExtension("GitHub.copilot-chat");
+  return {
+    modelogVersion: String(context.extension.packageJSON?.version ?? "unknown"),
+    editorName: vscode.env.appName,
+    editorVersion: vscode.version,
+    uiKind: vscode.env.uiKind === vscode.UIKind.Web ? "web" : "desktop",
+    remoteName: vscode.env.remoteName ?? null,
+    extensionKind: context.extension.extensionKind === vscode.ExtensionKind.Workspace ? "workspace" : "ui",
+    platform: process.platform,
+    arch: process.arch,
+    osRelease: release(),
+    nodeVersion: process.versions.node,
+    storage: service?.storageKind() ?? "not initialized",
+    activation,
+    copilotChatVersion: copilotChat ? String(copilotChat.packageJSON?.version ?? "unknown") : null,
+  };
+}
+
+/**
+ * The message deliberately embeds a home-directory path: it must appear in the
+ * local notification and output channel, and must not appear in the report.
+ * That makes the end-to-end check a privacy check as well.
+ */
+function testError(phase: string, code: string): Error {
+  const path = join(homedir(), ".claude", "projects", "modelog-private-test-project");
+  return Object.assign(new Error(`Simulated ${phase} failure while reading ${path}`), { code });
+}
+
+function triggerTestError(enabled: boolean): void {
+  if (!enabled) {
+    void vscode.window.showInformationMessage(
+      "Modelog: the test error is available only in the Extension Development Host.",
+    );
+    return;
+  }
+  throw testError("command", "EMODELOGTEST");
 }
 
 /**
@@ -713,7 +930,9 @@ async function enableCopilotAnalysis(context: vscode.ExtensionContext): Promise<
 
   if (copilotLoggingEnabled()) {
     void vscode.window.showInformationMessage(
-      "Modelog: Copilot's debug logging is already on, and Modelog is already reading what it writes. Nothing to change.",
+      activation.state === "failed"
+        ? "Modelog: Copilot's debug logging is already on. Modelog could not start, so it is not reading those logs yet — run \"Modelog: Show Log\" for the error."
+        : "Modelog: Copilot's debug logging is already on, and Modelog is already reading what it writes. Nothing to change.",
     );
     return;
   }

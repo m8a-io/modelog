@@ -2,6 +2,18 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] — Report a problem without leaking your machine
+
+### Added
+
+- **Report Issue, from the error itself.** A failed Modelog command now offers **Report Issue** and **Show Log**, and `Modelog: Report Issue` is available from the palette. You see the exact report before anything leaves your machine. It includes only the failed operation, the error type and code, and your Modelog, editor, OS, Node, storage and remote-environment details — no error messages, stack traces, paths or session data. You can open it as a GitHub draft or copy it, and nothing is posted until you submit it.
+- **A Modelog output channel** (`Modelog: Show Log`) that keeps the full error and stack trace locally.
+
+### Fixed
+
+- **Commands no longer disappear when Modelog fails to start.** Commands were registered only after the store and rate table loaded, so a startup failure left every palette entry ending in VS Code's bare *"command not found"* — one possible cause of #25, which is not yet confirmed. Commands are now registered first. Those that do not need the analytics service, such as `Enable Copilot Analysis`, keep working; the rest explain that Modelog could not start and offer the report (#26).
+- **`Enable Copilot Analysis` no longer claims Modelog is reading Copilot's logs when it could not start.** With logging already on, it now says the logs are not being read yet and points to `Modelog: Show Log`.
+
 ## [0.6.0] — Setting up, and cleaning up
 
 ### Added

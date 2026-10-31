@@ -86,6 +86,7 @@ src/
   ingest/           adapters (claudeCode, copilot, codex), scanner, billing detect
   metrics/          cost.ts (integer engine), aggregate.ts (pure)
   store/            Store interface; sqliteStore (node:sqlite) + fileStore fallback
+  diagnostics/      allowlisted bug-report payload (pure)
   ui/               panel.ts (webview host), protocol.ts (shared message contract)
   webview/          runs in the browser context — renders only
 ```
@@ -93,7 +94,7 @@ src/
 **Layering rules that keep the tests useful:**
 
 - **Two sources, two money units.** `Turn.source` is `claude-code` or `copilot`. Their costs are in different units (`usd_micro` vs `aiu_nano`) and **no conversion between them exists** — do not add one. Aggregates refuse a mixed set; call `partitionBySource()` first. This is what makes PRD §4.5's ban on cross-vendor cost comparison structural rather than a rule to remember.
-- `service.ts`, `metrics/`, `ingest/`, and `store/` import **no `vscode`**. That is why they can be exercised headlessly with a plain Node script, and why the cost engine is testable at all. Keep it that way.
+- `service.ts`, `metrics/`, `ingest/`, `store/`, and `diagnostics/` import **no `vscode`**. That is why they can be exercised headlessly with a plain Node script, and why the cost engine and the bug report's privacy allowlist are testable at all. Keep it that way.
 - **The webview computes nothing.** The host sends a finished, pre-formatted view model; the webview renders. All aggregation stays host-side.
 - `ui/protocol.ts` is imported by **both** processes, so a message-shape change breaks the build rather than the runtime.
 

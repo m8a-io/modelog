@@ -97,12 +97,20 @@ If you just uninstall, Modelog runs the same cleanup automatically on the next V
 - Each assistant stays in its own unit and is never summed or compared against another. Switch between them with one click.
 - A model shown as **cost unavailable** has no rate in the table — it is never priced at a default. Please [open an issue](https://github.com/m8a-io/modelog/issues) if you hit one.
 
+### Reporting a problem
+
+When a Modelog command fails, the error notification offers **Report Issue** and **Show Log**. You can also run `Modelog: Report Issue` at any time.
+
+Report Issue first shows you the exact report. It contains only the failed operation, the error's type and code (such as `EACCES`), and your Modelog, editor, OS and Node versions, plus whether you are working locally or remotely. Error messages, stack traces, file paths and session data are left out because they often contain private details. Nothing leaves your machine until you choose **Open GitHub Draft**, and nothing is posted until you submit the issue on GitHub. **Copy Report** lets you post it yourself instead.
+
+The full error stays in the **Modelog** output channel (`Modelog: Show Log`). Review it before pasting anything from it into a public issue.
+
 
 ## Privacy
 
 **Modelog never reads your prompts or your code.** The parser extracts timestamps, model ids, token counts and session identifiers, and nothing else — message content is never touched, for either assistant. There is a test asserting this.
 
-Nothing leaves your machine. No network calls, no telemetry, no account.
+Nothing leaves your machine. No network calls, no telemetry, no account. The one exception is a bug report you choose to send: **Report Issue** shows you the exact text, then opens it in your browser as a GitHub draft — see [Reporting a problem](#reporting-a-problem).
 
 ## Honest numbers
 
