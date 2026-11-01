@@ -438,6 +438,8 @@ A handoff command bundles two separable things, and they belong to different pro
 
 ##### `/close` as the counterpart to `/handoff` (initial idea, 2026-10-29)
 
+> **Renamed `/done` and specified in §7.22 (2026-11-01).** The reasoning below still holds.
+
 Two commands, one record. They differ only in whether anything continues afterwards:
 
 | | Ends the session | Transfers context | Asks the attestation |
@@ -515,13 +517,135 @@ Active time requires deciding what gap counts as "away." There is no correct val
 
 This is deliberately recorded as a hypothesis, not a benefit. The motivating intuition was "I don't know if it helps, but it is measurable" — which is the right instinct and the right order.
 
-The strongest candidate hypothesis: **cost-per-turn is only half of a trade.** A model that costs twice as much per turn but finishes the work in half the wall-clock may be cheaper in the unit an employer actually pays — developer time. Modelog cannot currently express that trade at all, and it is precisely the argument a developer makes informally when defending an expensive model. Related, and equally unmeasured: whether delegation to sub-agents (§7.23's Delegation section) trades money for time, and how much of a session a developer spends *waiting*.
+The strongest candidate hypothesis: **cost-per-turn is only half of a trade.** A model that costs twice as much per turn but finishes the work in half the wall-clock may be cheaper in the unit an employer actually pays — developer time. Modelog cannot currently express that trade at all, and it is precisely the argument a developer makes informally when defending an expensive model. Related, and equally unmeasured: whether delegation to sub-agents (the dashboard's Delegation section, `DESIGN.md` §10.5) trades money for time, and how much of a session a developer spends *waiting*.
 
 If the data shows no relationship, that is a publishable result too, and cheaper to find out than to assume.
 
 ##### Requirement
 
 `Turn` gains latency fields under `capture.ts` versioning. Absent is `null`, never zero — a Claude Code turn has no stated latency and must not read as an instantaneous one.
+
+#### 7.22 Guided session closure — `/done` (specified 2026-11-01, not scoped)
+
+**What this is.** The concrete interaction that fills §7.19's outcome record. §7.19's `/close` is renamed **`/done`**; it is the same record and the same rules — the model never authors it, provenance stays per field, and the abandoned-session path is still required. This section adds what §7.19 left open: what the developer actually sees, where improvement tips come from, and who defines "good".
+
+**Why it matters commercially.** Spend dashboards are commodity (§4, row 9 of §11). What no tool connects is **behaviour, cost and outcome on one timeline, per developer, over time**. The closure record is where those three meet, and the trend it produces — "am I getting better at working with AI?" — is the value a developer pays to keep (§7.14). Efficiency counts, not only savings: better work for the same spend is a win the record must be able to show.
+
+##### The flow: two interactions, about 30 seconds
+
+Anything longer will not be done at the end of a real day, and a sparse record is worse than none (§7.19).
+
+1. **Gut rating, given blind.** "1–10, how did that session go?" Asked *before* any evaluation is shown, so the number is not anchored by it.
+2. **One review screen**, then **[Accept]** or **[Edit]**:
+   - **Summary** — what was accomplished, **2–3 sentences maximum**. Drafted by the agent, `generated` until accepted or edited.
+   - **Time frame** — when the work happened: start and end, plus active time with its gap threshold stated (§7.21). Derived, never asked.
+   - **Result type** — one tap: code · document · spreadsheet/data · decision/design · research/learning (no artifact). See *Not every result is a commit* below.
+   - **At most 2 tips and 1 piece of praise** — from the session review (below). Everything else is still stored; it just isn't shown.
+   - **At most 3 behaviour tags** — proposed by the agent from a fixed vocabulary, each citing a specific moment, each confirmable or rejectable on its own.
+   - **Final rating** — prefilled with the gut rating; changing it after seeing the evaluation is allowed, and both values are stored.
+
+Feedback is framed as **tips for next time, or praise** — never a verdict. A session that was done well is told so, with the fact that shows it.
+
+##### Who judges what
+
+| Judge | What it judges | Provenance |
+| :--- | :--- | :--- |
+| **Modelog** (`modelog_session_review`, read-only) | The numbers: cost, cache behaviour, context growth, delegation, unsupervised runs, model fit | `observed` — deterministic, reproducible |
+| **The agent** | Patterns only visible in the conversation: repeated corrections, goal drift, output accepted without being checked | `generated` — a proposal; not stored unless the developer confirms it |
+| **The developer** | Whether it worked, and whether it was worth it | `user` |
+
+The agent does **not** turn Modelog's numbers into a score. That would add an irreproducible step and is the session grading its own homework (§7.19). Its distinct contribution is the conversation, which the agent has already seen and Modelog deliberately never reads (invariant 1) — so behaviour tags cost the content boundary nothing.
+
+##### Who defines "optimal": Modelog guards the measurement, not the standard
+
+There is no global, static "optimal". The best way to work depends on task, model, tool and current prices — a cache-pricing change moves it. Modelog's job is to keep the measurements honest, not to dictate good practice. Tips come from exactly two places:
+
+| Class | Where the standard comes from | Example |
+| :--- | :--- | :--- |
+| **Mechanical waste** | The rate card (`data/pricing.json`) — close to objective | "40k tokens written to cache and never read back." "12 trivial turns on Opus." |
+| **Personal best** | **The developer's own highest-rated sessions** | "In sessions you rated 8+, you started fresh at about 60k context tokens. This one ran to 180k." |
+
+The second row is what makes ratings worth giving: **your ratings define your own optimal**, so each rating improves the tips you get back.
+
+- **With no rating history,** only mechanical-waste tips appear. That gap is shown, not filled with a made-up norm.
+- **Team norms** may later be set by an org (§7.12). **Community averages** remain an opt-in reference (§7.13), never a standard.
+- **Calibration** — whether the developer's ratings track what the findings and outcomes show — only means something across many sessions. It is a monthly insight, not a per-session score. A self-rated 6 matching the findings is good self-awareness *and* still a 6; the tips are how to reach 8.
+
+##### Not every result is a commit
+
+Developers produce design documents, spreadsheets and decisions, and some sessions are research with nothing to save. The result type is therefore **attested** (one tap), not inferred from git. "No artifact" is a valid answer, not a failure. §7.19's survival metric applies only where the result is code in git; elsewhere it is shown as *not applicable*, never as zero.
+
+Detecting non-code artifacts automatically would mean reading file paths from tool-call content, which invariant 1 forbids for the store. Workspace file modification times can show *that* something changed without crossing that boundary; whether to use them is open.
+
+##### Behaviour tags: a fixed, versioned vocabulary
+
+Free text cannot be counted, and it will not be written at 6pm. Tags are **one keystroke, countable over time, and contain no content**, so they sync without raising a privacy question. The vocabulary is pinned and versioned, for the same comparability reason as §7.8's labels.
+
+Initial candidates (draft, not final): *ran too long unchecked* · *wrong model for the task* · *vague request* · *accepted output unread* · *went in circles* · *goal drifted* · *context should have been reset* · *well scoped* · *good delegation*.
+
+Tags describe **missing oversight, not autonomy**. Letting an agent run unattended is not a fault in itself; merging its output without anyone checking is. See §11 row 25.
+
+##### Session review signals (candidates — every one to be verified)
+
+Each signal is compared against **the developer's own history**, never a fixed threshold. None is inherently good or bad.
+
+| Signal | What it suggests | Data |
+| :--- | :--- | :--- |
+| Input tokens per turn, first vs last quarter | Context bloat; reset earlier | Captured |
+| Share of input read from cache | Reuse working; a sudden drop means the context was rebuilt | Captured |
+| Cache written, never read afterwards | Paid for nothing | Captured — the four token classes |
+| Expensive-model turns with small output and no tool loop | Wrong model for the task | Captured |
+| Mid-session model switches, and cost per turn after each | Did the switch help? | Captured (`developerModelSwitches`) |
+| Sub-agent share of turns and of cost | Delegation profile | Captured (`isSidechain`) |
+| Inference calls per turn | Long autonomous loops | Captured (`iterations`) |
+| Longest run of AI turns without human input | Oversight | **Unknown** — needs a human-message *count* without reading content; verify per source |
+| Idle gaps, time to first useful output | Session shape | Derivable (§7.21) |
+
+##### The read-only tool
+
+`modelog_session_review({ sessionId })` returns findings and the gaps it could not fill. It writes nothing, so invariant 6 holds.
+
+```jsonc
+{
+  "session": { "id": "…", "source": "claude-code", "models": ["…"], "start": 0, "end": 0 },
+  "findings": [
+    { "id": "context-growth", "value": 3.1, "unit": "x input tokens/turn, first→last quarter",
+      "baseline": { "p50": 1.6, "p90": 2.8 }, "notable": true, "kind": "personal-best",
+      "provenance": "observed" },
+    { "id": "cache-write-unread", "value": 40000, "unit": "tokens",
+      "notable": true, "kind": "mechanical-waste", "provenance": "observed" }
+  ],
+  "gaps": ["human-message count unavailable for this source"]
+}
+```
+
+##### Agent instructions (sketch)
+
+Shipped as a Claude Code slash command or skill, and as a Copilot prompt file (distribution caveat in §7.19):
+
+1. Ask for a 1–10 gut rating. Do not comment on it.
+2. Call `modelog_session_review`. Report only `notable` findings, as facts with their baseline, without softening. Report every `gaps` entry.
+3. From the conversation, propose at most 3 tags from the attached vocabulary, each citing a concrete moment. Propose none you cannot point to.
+4. Draft a 2–3 sentence summary, labelled as a draft.
+5. Show one screen. Accept or edit; confirm or reject each tag; final rating.
+6. Write only what the developer confirmed, with each field's provenance.
+
+##### The write path, and the record as a product
+
+The MCP server stays read-only (invariant 6). Step 6 writes a closure record to a local **inbox file**; the extension ingests it into the store. Any tool can feed the inbox, and the model never writes to the store.
+
+**The closure record is a deliverable in its own right**, not only a store row:
+
+- **Keyed by its own id**, so ingesting or syncing it twice is harmless.
+- **Exportable** as Markdown or JSON, so the developer can log the work wherever she needs to — a PM tool, a timesheet, a stand-up. Modelog **exports**; it never pushes into those tools (§7.9).
+- **Synced to the backend** under §7.11. In ephemeral remote environments, sync is what keeps the record at all (§7.14).
+
+##### Open
+
+- **Can the agent identify its own session id?** If not, the tool needs a reliable "most recent active session" lookup.
+- **Timing:** the `/done` turn itself may not have reached the log when the review runs.
+- **Rejection rate per signal** is product data: a finding developers reject most of the time is noise.
+- **Final tag vocabulary**, and whether workspace file modification times may inform the result type.
 
 ### Part 3 — Enterprise & Web
 
@@ -532,6 +656,14 @@ If the data shows no relationship, that is a publishable result too, and cheaper
 #### 7.11 Sync Boundary
 
 An explicit user action pushing **derived metrics and labels only** — never raw content, prompts, or code — to enterprise servers.
+
+**Refined 2026-11-01 for ephemeral remote environments (§7.14).** "Explicit user action" means **opting in once, at enrollment** — not a confirmation on every push. After that, sync runs continuously through a local outbox, because a workspace can be destroyed before anyone remembers to push. Consent stays visible rather than being asked repeatedly: the payload inspector shows exactly what has been and will be sent, and sync can be paused or revoked at any time.
+
+What crosses:
+
+- Derived metrics, labels, behaviour tags and closure-record fields (§7.22).
+- **The closure summary is the one content-adjacent field** (§7.19). The inspector lists it separately, and it has its own toggle; its default is an open product decision (§11 row 27).
+- Never raw content, prompts, code, or anything read from `message.content`.
 
 #### 7.12 Team Rollup
 
@@ -566,6 +698,20 @@ Only the third is a website problem, and it is the one that justifies a Personal
 **Constraints inherited, not re-decided:** aggregation is a §7.11 sync operation — derived metrics and labels only, never content, never silent. Cross-source totals remain forbidden (§4.5); aggregating three workspaces does not license summing Copilot credits into dollars.
 
 **The extension-side half belongs in this repo:** aggregation is only possible if the extension exposes a stable, identifiable per-workspace export with a workspace identity that survives restarts. That requirement is public and testable here, independent of whatever the private backend does with it.
+
+##### Ephemeral remote environments make sync a durability requirement (2026-11-01)
+
+Stated by the maintainer for m8a, not yet measured `[untested]`: a Coder workspace's home directory **persists for the workspace's lifetime only**. Workspaces can live days or weeks, but on a busy m8a tenant **a week at most is expected, and often a single work session**, since m8a keeps work context in Aion, outside the workspace. The maintainer's view is that remote environments are where development is heading, with the local machine reduced to a window onto them.
+
+Consequences:
+
+- **The local store dies with the workspace.** So do `~/.claude/projects` and the closure records. Without a central copy, a developer's history is only as long as her shortest-lived workspace. The backend is therefore not only an aggregation layer: **it is the only place that history survives.** That is a stronger paid offer than aggregation alone, and it comes from the same mechanism.
+- **Identity is the user's account plus a workspace id, never the machine.** Environments are recreated; the person and her history are not.
+- **Sync is an outbox:** records are queued locally and retried, and every record carries its own id, so delivery is idempotent. Opt-in happens once, at enrollment (§7.11).
+- **Flush early, not at shutdown.** Workspace deletion is not an extension event: the uninstall hook (`INSTALL-ux.md` §1.1) does not fire when a container is destroyed. The outbox should flush on `/done` and periodically, accepting that records written seconds before deletion can be lost. That loss must be reported as a gap, not hidden.
+- **Constraints inherited unchanged:** §7.11's payload rules, §4.5's ban on cross-source totals, and invariant 8 (`ENTERPRISE.md`) once a team is involved.
+
+**The public/private contract.** The sync payload schema, its version, and the enrollment handshake are what customers inspect to verify what leaves their machine. They are specified and versioned **in this public repository**, published as a package the private backend depends on. They are not copied into the private repository, where two copies would drift — the same reasoning as the invariants above.
 
 
 ### Cross-Cutting — Distribution & Environments
@@ -611,6 +757,8 @@ Kept as its own phase deliberately: it couples Modelog to another system's roadm
 Known inputs from `INSTALL-ux.md` §4: the extension host runs on the remote workspace, so `~/.claude/projects` and `localhost:11434` both resolve there rather than on the user's laptop. `vscode.env.remoteName` and `Extension.extensionKind` are the detection primitives. Whether Modelog should declare a preferred `extensionKind` is open.
 
 Scope to settle when the phase opens: whether Coder workspaces are expected to carry assistant logs at all, and if so whether the store should live in the workspace or in the user's persistent home.
+
+**Partly answered 2026-11-01** (maintainer statement, `[untested]`): on m8a, "the user's persistent home" lasts only as long as the workspace, which on a busy tenant is a week at most and often a single work session. No on-disk location outlives the workspace, so durability comes from §7.14's sync, not from choosing a better place for the store.
 
 ---
 
@@ -668,6 +816,8 @@ Every optional dependency (Ollama, a given assistant's logs, network) defaults c
 | **Storage** | Local only | Local + central rollup |
 | **Scope** | Individual trend/comparison | Team-wide cost-per-outcome, waste detection |
 
+> **Under review 2026-11-01:** whether Personal stays free and local-only, given that in ephemeral remote environments sync is what keeps a developer's history at all (§7.14). See §11 row 26.
+
 ---
 
 ## 10. Success Metrics
@@ -715,6 +865,9 @@ Every optional dependency (Ollama, a given assistant's logs, network) defaults c
 | 11 | Three distinct models appear across local sessions, so the model-switch anchor is viable on real data — but sessions may mix models mid-session. Anchor logic must handle intra-session switches. | Part 1 |
 | 24 | **Should Modelog let the developer rate a stretch of work's effectiveness** (e.g. `/effectiveness 8`), so cost can eventually be read alongside a subjective quality signal? Raised 2026-10-08 — see §7.18. Needs: a write tool (breaks the §7.9 read-only invariant), a definition of "which turns" a rating covers, and a decision on number-only vs. a free-text note (the latter edges toward §8.1's content boundary). | Part 2 — product decision |
 | 25 | **Does Modelog's value survive developers moving to autonomous AI workflows?** Raised 2026-10-29. If AI writes the bug report, fixes it, runs the tests, reviews the diff and opens the PR, the interactive IDE session Modelog reads may shrink as a share of all AI work. **The assessment is that the thesis strengthens and the capture surface is what is at risk — a coupling problem, not a value problem.** (a) Measurement matters *more* unattended: a developer in the loop is the monitoring, because a bad model feels wrong and they switch; with nobody watching, model and cost drift are invisible until the invoice or the incident. (b) The survival metric (§7.19) gets *better* — if AI opens the PRs then git is the complete record, every unit of work has a merge or a revert, and attribution gets easier. (c) The human's "I own this" review *is* §7.19's attestation; under autonomy it moves from end-of-session to PR approval, which is a **better** capture point — durable, timestamped, in git, not dependent on anyone remembering a command. **Consequence for how this repo is built:** `service.ts`, `metrics/`, `ingest/` and `store/` importing no `vscode` is not merely a testability rule, as `CLAUDE.md` frames it. It is what allows the measurement core to be re-hosted in CI, in a pipeline, or in a backend without a rewrite, and should be defended as a commercial asset. m8a does not replace that core; it is a **host** for it. **What would change this answer:** evidence the core cannot in fact be lifted out, or that survival is unattributable under squash-merge and rebase workflows. Neither is tested yet. | All — positioning |
+| 26 | **Is cross-workspace sync paid in the Personal edition?** §9 lists Personal as free and local-only, but §7.14 makes durable history and aggregation the backend's first job — and for developers in ephemeral remote environments, sync is the only way their history survives at all. Either Personal gains a paid sync tier, or sync stays free as the way users are acquired and Enterprise carries the revenue. §9 should be updated once this is decided. Raised 2026-11-01. | Part 3 — business decision |
+| 27 | **Should the closure summary sync by default?** It is the only content-adjacent field that leaves the machine (§7.11, §7.19). Default-on makes the developer's own work log complete across environments; default-off is the conservative reading of §8.1. Either way it has its own toggle and appears separately in the payload inspector. Raised 2026-11-01. | Part 3 — product decision |
+| 28 | **Can a human-message count be captured without reading content?** The oversight signal in §7.22 ("longest run of AI turns without human input") needs the number of developer messages, not their text. Whether each source's log makes that count available without touching `message.content` is unverified. Raised 2026-11-01. | Part 2 |
 
 ---
 

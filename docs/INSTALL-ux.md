@@ -118,6 +118,8 @@ Two consequences:
 
 **[verified]** The detection primitives exist: `vscode.env.remoteName` (`string | undefined`) and `Extension.extensionKind` (`ExtensionKind.UI` vs `ExtensionKind.Workspace`). Whether Modelog should declare a preferred `extensionKind` is an open design question, not yet decided.
 
+**[untested — maintainer statement, 2026-11-01]** On m8a (Coder), the home directory persists **per workspace only**. A workspace may live days or weeks, but on a busy tenant a week at most is expected, and often a single work session. Both `~/.claude/projects` and Modelog's own store are therefore lost when the workspace is deleted. Durability is handled by sync (PRD §7.14), not by choosing a storage location. Replace this tag with a measurement once the §7.17 phase opens.
+
 ---
 
 ## 5. Environment matrix — what is actually unknown
