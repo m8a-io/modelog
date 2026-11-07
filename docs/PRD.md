@@ -809,7 +809,7 @@ Verification status, measured on the development machine 2026-11-07:
 | Claude Code — project scope | `.claude/skills/<name>/SKILL.md` | **`[verified]`** — this repository already ships one (`refresh-pricing`) |
 | Claude Code — user scope | `~/.claude/commands/*.md`, `~/.claude/skills/` | `[untested]` — neither directory exists here; format unconfirmed |
 | Copilot Chat | `.github/prompts/*.prompt.md` | `[untested]` — no such directory here |
-| Codex | a prompts directory under `~/.codex` | `[untested]` — `~/.codex` exists (`config.toml`, history, logs), with **no** `prompts` directory |
+| Codex | a prompts directory under `~/.codex`, **or `~/.codex/skills/<name>/SKILL.md`** | `[untested]` — `~/.codex` exists with **no** `prompts` directory. **Lead, 2026-11-07:** `~/.codex/skills/` exists and holds `SKILL.md` files (under `.system/`: `skill-creator`, `skill-installer`, …) — the same shape as Claude Code skills, so one artifact may serve both. Whether a user-installed skill there is picked up is unverified |
 | Any — via the vendor's CLI | as with `codex mcp add` | `[untested]` for commands; **`[verified]` for MCP registration** (2026-10-22) |
 
 `codex` and `copilot` are on `PATH` here; `claude` is not — the same asymmetry `PLAN-part2.md` records for MCP registration, and the reason Claude Code's path there is a file write rather than a CLI call.

@@ -26,6 +26,43 @@ A long design conversation on 2026-11-06/07 that produced **documentation only**
 
 ---
 
+## NEXT SESSION — build `/done` (and `/handoff`), shipped by the extension
+
+**Priority set by the maintainer, 2026-11-07:** *"I really, really, really want `/done` badly."* The goal is both commands **built and deployable through the extension**. This reorders the plan below: §7.24's step 4 moves ahead of steps 2–3. That is legitimate, not a shortcut — `/done`'s first useful version needs neither the sufficiency rule (step 2) nor the range-scoped recommendation surface (step 3). The closure record is the product (§7.22); tips can arrive in a later release.
+
+**Settled by the maintainer this session:** the commands are **deployed via the extension** (an opt-in installer, §7.15 rules). Still open: whether their source lives in this repo or its own (§7.24 Open) — default to **this repo** under a top-level directory unless that turns out to block anything; it is easy to split later and hard to merge.
+
+### What must stay true (from the PRD — re-read §7.19, §7.22, §7.24)
+
+- **The model never authors the record.** The agent drafts; the developer accepts or edits; only confirmed fields are written, each with its provenance (`user` / `generated` / `observed`).
+- **The commands work with Modelog uninstalled** (§7.24 constraint 2). No MCP server, no extension → `/done` still runs the flow and **prints** the record as Markdown. It must never fail because Modelog is absent.
+- **Invariant 6: the MCP server gets no write tools.** The write path is the **inbox file** the extension ingests (§7.22). Do not reopen this.
+- **About 30 seconds, two interactions** (§7.22): blind gut rating first, then one review screen.
+- **Modelog never runs either command automatically**, never nags toward one.
+
+### Staged build — each stage verifiable on its own
+
+| Stage | What | Done when |
+| :-- | :--- | :--- |
+| **0. Verify distribution** | For each target, install a trivial throwaway command and invoke it. Claude Code user scope (`~/.claude/commands/*.md` vs `~/.claude/skills/<name>/SKILL.md` — **neither directory exists here yet**); Copilot Chat prompt files (workspace `.github/prompts/*.prompt.md` and the user-profile location); Codex — **lead found 2026-11-07: `~/.codex/skills/` exists and holds `SKILL.md` files under `.system/`, the same shape as Claude Code skills**, so one artifact may serve both. `claude` is **not** on `PATH` (VS Code extension only), so Claude Code checks need the maintainer to type the command | Every §7.24 row is `[verified]` or `[fails]`, with the exact path and file format. **Nothing below is designed around an `[untested]` row** |
+| **1. The command artifacts** | `/done` and `/handoff` prompt text, written once and rendered per target format. Covers both modes: Modelog present (call MCP, write inbox) and absent (print the record). Tag vocabulary pinned and versioned (§7.22 draft list) | Each command runs end-to-end in at least one tool **with Modelog uninstalled** |
+| **2. Closure record + inbox + store** | The record's schema (§7.22 fields: id, session ref, gut + final rating, summary, result type, tags, time frame, per-field provenance, *when* it was attested — §7.19's recall caveat). The inbox location and file format. Ingest: idempotent by record id. Store: **a new table — today the store holds only `turns` and `cursors`**, so this is a `SCHEMA_VERSION` bump (currently 6). Widen `provenance` past the literal `"observed"` (`src/mcp/tools.ts`) | A hand-written inbox file is ingested once, re-ingested harmlessly, and visible via a read-only query |
+| **3. The installer** | `Modelog: Install /done and /handoff` — reuse `MCP.md` §7.3/§7.4's flow unchanged: show exact file + content, confirm, back up, write, verify, clipboard fallback, never claim an unverified success | Installs into every stage-0-verified target; uninstall/cleanup covered (`src/cleanup/`) |
+| **4. Minimal surface** | Closure records visible somewhere in the Dashboard (a list is enough) and exportable as Markdown/JSON (§7.22) | A developer can see and export what `/done` wrote |
+| **5. `modelog_session_review`** *(may be a second release)* | The read-only MCP tool from §7.22, built on **`RESEARCH-signals.md`'s verified set**, not §7.22's original nine: S1 resume-rebuild cost, S2 context growth, S3 context at break, S5 unread writes (demoted), S7 delegation, S8 switches **with the tautology guard**, plus a `gaps` array. Mechanical-waste findings only until there is rating history | `/done` shows at most 2 tips + 1 praise, each with its baseline, and every gap |
+
+**Recommended release split:** stages 0–4 are a shippable `/done` — a rating, a summary and a result type, recorded durably. That alone answers §12's `log` argument, and it starts accumulating the **rated** sessions that stage 5's *personal-best* tips need anyway. Shipping 0–4 first is the fastest route to the tips, not a detour from them.
+
+### Design questions the next session must answer (or ask the maintainer)
+
+1. **How does the agent find the inbox?** The extension's `globalStorageUri` differs per editor and per remote, and the agent cannot guess it. Candidates: a fixed user-level path (e.g. `~/.modelog/inbox/`), or a **read-only** MCP tool that *returns* the path (keeps invariant 6; fails cleanly when Modelog is absent, which constraint 2 needs anyway). Decide before stage 2.
+2. **How does the agent identify its own session id?** (§7.22 Open.) Likely answer: it doesn't — the record carries a timestamp and `cwd`, and ingest joins to the most recent session active in that `cwd` at that time. Check against the real store.
+3. **Timing:** the `/done` turn itself may not have reached the log when the review runs (§7.22 Open). Matters for stage 5, not 0–4.
+4. **Is `/handoff`'s successor brief content?** (§7.24 Open.) Simplest safe answer for v1: the brief is printed for the developer to paste and **never stored**; only the closure record is.
+5. **The abandoned-session path** (§7.19 says required). Out of scope for v1 — but the record schema must not make it impossible later (e.g. a retroactive record must be distinguishable by its attestation time).
+
+---
+
 ## The five rules this workstream must not break
 
 Each came out of the design conversation, and each has a reason that is easy to lose once implementation starts.
@@ -71,7 +108,7 @@ Only after 1 and 2.
 
 So the write path for recommendation markers is **not** an MCP tool. §7.22 already settled the pattern: a local **inbox file** that the extension ingests. Reuse it; do not reopen it.
 
-### 4. `/handoff` and `/done` — verify before designing
+### 4. `/handoff` and `/done` — verify before designing  *(promoted to NEXT SESSION above, 2026-11-07)*
 
 Every row in §7.24's distribution table except project-scoped Claude Code skills is `[untested]`. Specifically unconfirmed on this machine as of 2026-11-07: the user-scope `~/.claude/commands` format (directory does not exist), Copilot's `.github/prompts/*.prompt.md`, and whether Codex has a prompts directory at all (`~/.codex` exists, with no `prompts`). `codex` and `copilot` are on `PATH`; `claude` is not.
 
