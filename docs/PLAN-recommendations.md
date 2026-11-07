@@ -1,6 +1,6 @@
 # Next Session — the recommendation loop (PRD §7.23 / §7.24)
 
-**Status:** specification written 2026-11-07. **No code.** Nothing in §7.23 or §7.24 is implemented, scoped, or estimated.
+**Status:** specification written 2026-11-07; **step 1 complete 2026-11-07** (`RESEARCH-signals.md`). **Still no code.** Nothing in §7.23 or §7.24 is implemented, scoped, or estimated.
 
 **Spec:** `PRD.md` §7.23 (the loop), §7.24 (shipping the commands), §7.22 (the closure record this builds on), §7.19 (the authorship rule). Where this document and the PRD disagree, **the PRD wins** — this is sequencing and session context, not requirements.
 
@@ -20,7 +20,9 @@ A long design conversation on 2026-11-06/07 that produced **documentation only**
 | §11 rows 29–31 | Sufficiency algorithm; whether the agent's prose is stored; per-tool command installation |
 | §12 | Why the name carries `log` — the remote-dev-environment argument |
 
-**Also still open, never specified:** a small GitHub issue the maintainer wanted to file. Ask.
+~~**Also still open, never specified:** a small GitHub issue the maintainer wanted to file.~~ **Filed 2026-11-07 as [#28](https://github.com/m8a-io/modelog/issues/28)** — ingest warnings become one "inconsistencies noticed" notice with a privacy-safe report, reusing 0.7.0's flow.
+
+**New prior art, 2026-11-07:** `microsoft/TokenEconomizer` (UC Berkeley / Microsoft Research, arXiv 2610.22732) — reviewed into PRD §4. It performs the interventions it then reports savings on, which is the shape §7.19 forbids Modelog from taking; it carries a published sufficiency-and-retraction rule relevant to step 2; and a developer who installs it is the cleanest available demonstration of §7.23's loop, since Modelog can anchor and score the change **without having shipped the intervention**.
 
 ---
 
@@ -51,11 +53,15 @@ For each candidate, answer two questions:
 
 **Done when** each candidate is either specified with its data source, or rejected with the arithmetic that killed it.
 
+> **Done 2026-11-07 — `RESEARCH-signals.md`.** Ten signals specified with their data source, **four rejected** (two on arithmetic, two on missing data), two demoted to denominators. Headlines: cost is **85.5% cache traffic**, and **cache rebuilds after a break are 28.7% of all spend** — a signal §7.22's table does not contain. `iterations` is constant 1 on Claude Code and so carries no information there. The small-output model-fit tip dies on the arithmetic. §7.20's keepalive rejection is **confirmed on real data** (+14.3% dearer), and the 1-hour TTL it ranked cheapest is worth **−15.7%** here. §11 row 28 is **resolved yes** for Claude Code. Three corpus hazards were found and must be carried forward: 36% of the live store is synthetic demo data, **24% of sessions have no surviving source log**, and n is 21 sessions from one developer.
+>
+> **The rejections rule 1 predicted did happen**, and one of them was mine: a first-pass 1-hour-TTL counterfactual double-charged the surcharge onto writes that would never occur, and returned a wash where the corrected model returns a $58 saving — a factor of 26, from a plausible-looking slip. Recorded in `RESEARCH-signals.md` §5.6 rather than quietly fixed.
+
 ### 2. The sufficiency rule — §11 row 29
 
 Needs three things that do not exist yet: the minimum effect size worth claiming, the real dispersion of each signal across the author's own sessions, and a rate estimate stable enough to turn "40 more sessions" into "about 9 days".
 
-The store holds ~1,800 real turns to measure dispersion against, so this is an **analysis task before it is an implementation one**. Getting it wrong is costly in both directions: too eager and Modelog calls noise a habit; too cautious and a new user is told "not yet" until she uninstalls.
+The store holds **2,802 real Claude Code turns across 21 sessions** to measure dispersion against (not ~1,800 — and 36% of the raw store is synthetic demo data that must be excluded first), so this is an **analysis task before it is an implementation one**. Step 1 has already measured the dispersion of six signals and the session rate; what is left is the minimum effect size, and the choice between the two rate denominators — 21 sessions / 48 calendar days versus 0.91 per active day over 23 active days — which differ by a factor of two and therefore change "ask again in about 9 days" into something twice as long. Getting it wrong is costly in both directions: too eager and Modelog calls noise a habit; too cautious and a new user is told "not yet" until she uninstalls.
 
 ### 3. The MCP surface
 
@@ -79,4 +85,6 @@ Two constraints from §7.24 that shape the artifact itself: the commands must **
 
 Step 1 is a session on its own and produces no code. Steps 1 and 2 together are the honest definition of "ready to build".
 
-**Do not start step 3 before step 1 has rejected at least one candidate signal.** If nothing was rejected, the arithmetic was not actually run.
+~~**Do not start step 3 before step 1 has rejected at least one candidate signal.**~~ Satisfied: four rejected, with arithmetic.
+
+**New constraint from step 1, for step 3.** The oversight signal (longest run of AI turns without human input) needs a `capture.ts` bump and **cannot be backfilled** — 24% of sessions already have no surviving source log, and that share only grows. If the MCP surface is designed before ingest records the prompt boundary, every session until that release permanently lacks the signal with the widest dispersion in the set.
