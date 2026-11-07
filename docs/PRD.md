@@ -54,6 +54,21 @@ The closest existing tool. It reads local session logs from Copilot (`workspaceS
 
 **Modelog's defensible core is therefore §1's gaps two and three — confound tracking and task normalization — plus the anchored trend engine.** Everything in Part 1 below exists to make those possible, not as the product in itself.
 
+> **AI Insights now grades usage — observed 2026-11-07 from a local install.** The extension has entered the advice space with a **Usage Health Score**: a letter grade over a 0–100 composite (`C`, 68/100) built from five weighted sub-scores — Cache Efficiency 25, Context Quality 25, Cost Efficiency 20, Completion Acceptance 15, Budget Health 15 — above a list of insights, e.g. *"19 marathon session(s) this month (>80 turns or >3h) — starting fresh with a rehydration brief often works better than pushing through."*
+>
+> **This is the recommendation space, entered first — and it sharpens the differentiator rather than closing it.** Four properties of that panel are things Modelog's own invariants forbid:
+>
+> | What the score does | Why Modelog cannot |
+> | :--- | :--- |
+> | Scores a metric it states it does not have — *Completion Acceptance: "not enough data yet"* — at **50/100**, and folds that into the headline grade | A gap filled with a midpoint is a confidently-wrong number (§8.2, invariant 3). It silently drags the composite toward 50 in a way the reader cannot see or undo |
+> | Blends five differently-scaled sub-scores into one number using weights nobody can derive | The weighting is opinion presented as measurement |
+> | Judges against fixed thresholds — `>80 turns`, `>3h`, `>5 distinct tools` | A norm that is not the developer's own is a standard Modelog has no basis to set (§7.22) |
+> | Reports a **current** grade | It cannot answer *"is this better than last month"* — which is §1's entire question |
+>
+> **The gap is the verb.** It grades; nothing in it measures what happened *after* a developer acted on one of its own tips. §7.23 is the response: trends rather than grades, and a recorded anchor rather than a text panel.
+>
+> **This block is a commitment, not a critique.** Naming a competitor's weakness is only worth the words if Modelog actually does the thing better. If §7.23 does not ship, the four rows above should be **deleted**, not left standing as an unearned contrast.
+
 ### 4.5 Comparability — a hard constraint
 
 Not every comparison Modelog *could* render is one it *may* render. Comparability has three tiers, and only the first two support cost.
@@ -465,7 +480,7 @@ Open, to be worked through later:
 - Where a retroactive prompt surfaces without becoming a nag. §8.1's no-dark-patterns bar applies; compare §11 row 15's resolution on the Copilot setting, where prompting at all was rejected.
 - **Whether a retroactive rating is the same measurement as one given at the keyboard.** Rating a session three days later is recalled, not observed. If the two are stored identically, a systematic recall effect becomes invisible — so provenance likely needs to record *when* the attestation was given relative to the work, not only who gave it.
 
-Distribution caveat `[untested]`: a VS Code extension is not believed to be able to contribute a slash command into Claude Code — that would ship as a plugin or skill alongside the extension, a different channel with a different install story. Verify before designing around it.
+Distribution caveat `[untested]`: a VS Code extension is not believed to be able to contribute a slash command into Claude Code — that would ship as a plugin or skill alongside the extension, a different channel with a different install story. Verify before designing around it. **Taken forward in §7.24**, which settles that Modelog ships both commands and leaves only the mechanism open.
 
 #### 7.20 Cache-retention assistance (candidate — **low priority**)
 
@@ -621,7 +636,7 @@ Each signal is compared against **the developer's own history**, never a fixed t
 
 ##### Agent instructions (sketch)
 
-Shipped as a Claude Code slash command or skill, and as a Copilot prompt file (distribution caveat in §7.19):
+Shipped as a Claude Code slash command or skill, and as a Copilot prompt file (distribution mechanism and its verification status in §7.24):
 
 1. Ask for a 1–10 gut rating. Do not comment on it.
 2. Call `modelog_session_review`. Report only `notable` findings, as facts with their baseline, without softening. Report every `gaps` entry.
@@ -646,6 +661,132 @@ The MCP server stays read-only (invariant 6). Step 6 writes a closure record to 
 - **Timing:** the `/done` turn itself may not have reached the log when the review runs.
 - **Rejection rate per signal** is product data: a finding developers reject most of the time is noise.
 - **Final tag vocabulary**, and whether workspace file modification times may inform the result type.
+
+#### 7.23 *"What could I do now?"* — the recommendation loop (specified 2026-11-07, not scoped)
+
+**What this is.** §7.22 specifies the record written when a session ends. This section specifies the question a developer can ask at any time, of her own agent, over MCP:
+
+> *"What could I do now to improve how I work with AI?"*
+
+§7.22 answers *"how did that session go?"*. This answers *"what should change?"* — and then, once something has changed, *"did it work?"*. It is where Modelog stops being a mirror and becomes worth keeping.
+
+##### Grades are the commodity; the trend is the product
+
+AI Insights ships a Usage Health Score (§4). A grade is a photograph: it says where you are, says nothing about whether you are improving, and has no way to know whether acting on its own advice helped.
+
+| | A grade | Modelog |
+| :--- | :--- | :--- |
+| Answers | "You are a C" | "This changed, by this much, since you changed that" |
+| Standard | Fixed thresholds | The developer's own history (§7.22) |
+| Missing data | Scored at a midpoint | Stated as a gap, scored not at all |
+| After advice | Nothing | A before/after, anchored on the moment the advice was given |
+
+The last row is the whole thing. Any agent can already say *"use sub-agents"* — that advice is free and needs no extension. **What is scarce is evidence that it worked for this developer**, and producing it requires having recorded the moment it was suggested.
+
+##### A tip is an anchor, not output
+
+> **Requirement:** a recommendation is **an event written to the store**, not a string returned to a chat. If it is not recorded, no verdict on it is possible later, and the loop is decoration.
+
+The machinery already exists and needs no new maths. §6's `Marker` is a point-in-time event that can anchor a comparison; §7.3's trend engine computes before/after windows either side of an anchor. A recommendation becomes a marker of a new kind.
+
+| Field | Provenance | Why |
+| :--- | :--- | :--- |
+| That a tip was given, when, and against which signal | `observed` | Modelog emitted it. This is a fact about Modelog, not a claim about the developer |
+| The prose and the reasoning | `generated` | Supplied by the agent (below). Never summed, never the sole basis of a measured claim (§7.19) |
+| Whether the developer intends to act | `user`, optional | One tap, never required. Absence is not a "no" |
+
+**Adoption is measured, never self-reported.** Whether the advice was taken is read from the triggering signal moving in the window after the anchor — not from asking. A developer who achieves the same change by her own method, without ever using a Modelog-supplied command, is indistinguishable in the data. That is correct and deliberate: **Modelog measures the behaviour, never the brand** (§7.24).
+
+##### The verdict must be able to say "it did nothing"
+
+Three outcomes, all first-class:
+
+- **Adopted, signal improved** — report the delta, under the caveats §7.22 already requires.
+- **Adopted, no detectable change** — say so plainly. A tip that changed nothing is the most valuable thing a measurement tool can report about advice, and the thing no advice product ever says about itself.
+- **Not adopted** — no verdict, and never *"you ignored this."*
+
+A loop that can only produce good news is marketing. §4.5's rule on aggregate outcome claims binds Modelog's own recommendations before it binds anything else.
+
+##### Sufficiency — what "not yet" means, and how long it lasts
+
+Before there is enough history, the honest answer is that there is no answer. §8.2's visible-gap rule applies to advice exactly as it applies to a number.
+
+> *"Modelog has 4 days of your history and 11 sessions. That is not enough to tell your habits apart from your week. At your current rate, ask again in about 9 days."*
+
+**The threshold is sessions and spread, not days.** A developer running twenty sessions a day has a usable baseline within two; one running two a week does not have one for months. The estimate is computed from her own observed rate and **expressed back in calendar terms**, because "about 9 days" is actionable where "40 more sessions" is not.
+
+Sufficiency is **per signal, not global**. Cache-write waste is visible across a handful of sessions; *"your 8+ rated sessions start fresh around 60k context"* needs enough **rated** sessions to have a distribution at all. A signal that is ready reports; one that is not says what it is still missing. The algorithm is open — §11 row 29.
+
+##### Division of labour
+
+| Who | Contributes | Why them |
+| :--- | :--- | :--- |
+| **Modelog** | The signal, the anchor, the verdict | Deterministic, reproducible, and the only party that can measure what happened afterwards |
+| **The agent** | That a practice exists, why it tends to help, how to adopt it | It already knows, it is current without being maintained, and its knowledge improves on its own schedule rather than on Modelog's release cycle |
+| **The developer** | Whether to act, and whether it was worth it | §7.22 |
+
+**Modelog stores no catalogue of good practice.** Not out of modesty — because advice shaped by intuition is wrong often enough to be dangerous, and this repository already contains the worked example. §7.20 computes that *"keep the session cached"* — a tip that sounds obviously right — costs **more** than letting the cache lapse, for any break over roughly fifty minutes. Shipped as a stored tip, it would have cost users money on the strength of a plausible guess. Advice that comes from the agent and is then measured by Modelog has a correction mechanism; advice frozen into Modelog has none.
+
+This is not a ban on Modelog ever naming a practice — §7.24 ships two. It is a rule about **who asserts that a practice is good**, which is nobody, until the developer's own data says so.
+
+##### Absence is a measured signal
+
+§7.22's signals compare a developer against her own history. Recommendations need one addition, for the case where there is no history because the thing has never been done:
+
+> *"Zero sub-agent turns across 212 sessions."* · *"No session under 40 turns in 90 days."* · *"No context reset in any session that passed 100k tokens."*
+
+An absence is as observed as a quantity and asserts nothing about whether it ought to be filled. The agent decides whether a zero is worth raising; Modelog only reports that it is a zero.
+
+##### Open
+
+- **Where a recommendation may surface.** §8.1's no-dark-patterns bar and §7.19's nag constraint both apply — but they do not bite equally everywhere, and treating them as a blanket ban on prompting is too crude. A prod inside the **Dashboard** reaches a developer who chose to open it; an unsolicited toast, badge or notification does not. The working split is therefore **the Dashboard may prod, nothing else may**: it is allowed to say *"your sessions have been getting longer — ask your agent what to do about it"*, because the user came to look. Everything else about Modelog is purely discoverable today, and §7.15's walkthrough is the only other sanctioned surface.
+- The conflict of interest §7.24 creates — Modelog ships two commands and also scores whether they helped. Mitigated by measuring behaviour rather than command usage, and by "it did nothing" being a reportable outcome, but it belongs in the UI and not only in this document.
+
+#### 7.24 Shipping `/handoff` and `/done` (specified 2026-11-07, not scoped)
+
+**The decision.** Modelog ships both commands. §7.19 left this as a distribution caveat tagged `[untested]`; the intent is now settled and only the mechanism is open.
+
+| | Ends the session | Transfers context | Writes a closure record |
+| :--- | :--- | :--- | :--- |
+| `/handoff` | yes | yes — a brief for a successor session | yes (§7.22) |
+| `/done` | yes | no | yes (§7.22) |
+
+They exist primarily because **ending a session deliberately is itself the practice.** §7.19's finding that sessions overwhelmingly end by abandonment is the problem they address, and the closure record is precisely what abandonment destroys.
+
+##### Reconciling this with §7.19's independence rule
+
+§7.19 states: *"Modelog may measure whether a handoff practice saved money. It must not perform the handoff it then scores."* Shipping the commands does not breach that, under two constraints that keep the distinction real rather than verbal:
+
+1. **The measured signal is the behaviour, not the command.** Modelog scores session length, context growth and reset frequency. A developer who ends sessions cleanly by hand produces identical data to one running `/handoff`, and Modelog cannot tell them apart — by construction, since it never observes which command ran.
+2. **The commands work with Modelog uninstalled.** Neither may require the MCP server, the store, or the extension to function. Without Modelog they do their job and write nothing. A command that only works while the product is measuring it is lock-in wearing a tip's clothing.
+
+Where the rule still binds: Modelog must not perform a handoff automatically, must not nag toward one, and must report "it did nothing" when that is what the data says (§7.23).
+
+##### How they are distributed — mechanism open, precedent available
+
+**No VS Code extension API contributes a slash command into Claude Code, Copilot Chat or Codex.** Each reads commands from its own on-disk convention, so distribution means writing a file into a directory another tool owns, or shelling out to that tool's CLI.
+
+**Modelog already does exactly this, and the pattern is proven.** `MCP.md` §7.4 registers the MCP server across four clients by three mechanisms — a merge into `~/.claude.json`, `codex mcp add`, `copilot mcp add` — each behind the §7.3 flow: show the exact file and the exact content, confirm, back up, write, and never claim a success that was not verified. **Command installation should reuse that flow unchanged**, including its refusal to report a success it cannot confirm.
+
+Verification status, measured on the development machine 2026-11-07:
+
+| Target | Candidate mechanism | Status |
+| :--- | :--- | :--- |
+| Claude Code — project scope | `.claude/skills/<name>/SKILL.md` | **`[verified]`** — this repository already ships one (`refresh-pricing`) |
+| Claude Code — user scope | `~/.claude/commands/*.md`, `~/.claude/skills/` | `[untested]` — neither directory exists here; format unconfirmed |
+| Copilot Chat | `.github/prompts/*.prompt.md` | `[untested]` — no such directory here |
+| Codex | a prompts directory under `~/.codex` | `[untested]` — `~/.codex` exists (`config.toml`, history, logs), with **no** `prompts` directory |
+| Any — via the vendor's CLI | as with `codex mcp add` | `[untested]` for commands; **`[verified]` for MCP registration** (2026-10-22) |
+
+`codex` and `copilot` are on `PATH` here; `claude` is not — the same asymmetry `PLAN-part2.md` records for MCP registration, and the reason Claude Code's path there is a file write rather than a CLI call.
+
+**No row above may be designed around until it is verified.** Install UX is a §7.15 concern and inherits its rules: opt-in, never a side effect of onboarding, and a copy-to-clipboard fallback wherever the automatic path is unavailable (`MCP.md` §7.4).
+
+##### Open
+
+- Per-tool verification of every `[untested]` row above, before any installer is written.
+- **Whether the commands live in this repository or their own.** Constraint 2 makes them independently useful with no Modelog dependency, which argues for a separate artifact — and that is also how they reach developers who never install the extension.
+- **Whether `/handoff`'s successor brief is content.** It summarises work in progress, so it is plausibly subject to invariant 1 and §8.1 rather than merely §7.11's sync toggle. §7.22's closure summary already set the precedent for a single content-adjacent field; this would be a second, and it is generated rather than attested.
 
 ### Part 3 — Enterprise & Web
 
@@ -868,6 +1009,9 @@ Every optional dependency (Ollama, a given assistant's logs, network) defaults c
 | 26 | **Is cross-workspace sync paid in the Personal edition?** §9 lists Personal as free and local-only, but §7.14 makes durable history and aggregation the backend's first job — and for developers in ephemeral remote environments, sync is the only way their history survives at all. Either Personal gains a paid sync tier, or sync stays free as the way users are acquired and Enterprise carries the revenue. §9 should be updated once this is decided. Raised 2026-11-01. | Part 3 — business decision |
 | 27 | **Should the closure summary sync by default?** It is the only content-adjacent field that leaves the machine (§7.11, §7.19). Default-on makes the developer's own work log complete across environments; default-off is the conservative reading of §8.1. Either way it has its own toggle and appears separately in the payload inspector. Raised 2026-11-01. | Part 3 — product decision |
 | 28 | **Can a human-message count be captured without reading content?** The oversight signal in §7.22 ("longest run of AI turns without human input") needs the number of developer messages, not their text. Whether each source's log makes that count available without touching `message.content` is unverified. Raised 2026-11-01. | Part 2 |
+| 29 | **How much history is enough to answer "what could I do now?"** §7.23 requires a sufficiency rule stated to the user in days but computed from sessions and spread, and evaluated per signal rather than globally. Needs three things that do not exist yet: the minimum effect size worth claiming, the real dispersion of each signal across sessions, and a rate estimate stable enough to turn "40 more sessions" into "about 9 days". Getting this wrong in either direction is costly — too eager and Modelog calls noise a habit; too cautious and a new user is told "not yet" until they uninstall. Raised 2026-11-07. | Part 2 |
+| 30 | **Is the agent's recommendation prose stored, or only the signal and the anchor?** §7.23 records that a tip was given as `observed` and leaves its text `generated`. Storing the text makes a later verdict legible — *"this is what you were told, and here is what happened"* — but puts model-authored prose in the store, which §7.19's authorship rule admits only as a developer-edited draft. Not storing it leaves a verdict that cannot quote what it is judging. Raised 2026-11-07. | Part 2 |
+| 31 | **Can Modelog install a slash command into each of the three assistants, and should it?** §7.24 settles that Modelog ships `/handoff` and `/done`; every distribution row there except the project-scoped Claude Code skill is `[untested]`. Writing into a directory another tool owns is a stronger action than registering an MCP server, and the CLI precedent (`codex mcp add`, `copilot mcp add`) may have no command-installation equivalent. Raised 2026-11-07. | Part 2 → §7.15 |
 
 ---
 
@@ -878,3 +1022,9 @@ Every optional dependency (Ollama, a given assistant's logs, network) defaults c
 **Domain:** `modelog.dev` (registered). The `.dev` TLD is HSTS-preloaded, so the Part 3 site is HTTPS-only by default.
 
 **Positioning:** A personal instrument, not a cost-cutting mandate — and not an ROI justification tool. Modelog tells an individual developer what actually changed when they changed how they work.
+
+**Why the name carries `log` — stated 2026-11-07.** The second half of the name is load-bearing, not decoration, and it encodes a bet about where development is going.
+
+As systems become more distributed, work moves off the laptop into **remote dev environments** — building the environment *in* the environment is easier than hooking a local machine into it. A developer's work then spans several workspaces, each of which can be destroyed on a week's notice or less (§7.14), and **no workspace is the place her history lives.** At that point centralized session logging stops being a convenience and becomes the only way a record exists at all.
+
+That is why `/done` (§7.24) is a **logging act before it is a rating prompt**, and fully opt-in; why the closure record is keyed, idempotent and exportable rather than merely a store row (§7.22); and why §7.14's first job is cross-workspace aggregation rather than a hosted copy of the dashboard. The `model` half of the name describes what Modelog reads. The `log` half describes what survives the workspace.

@@ -14,7 +14,8 @@ Read these before substantial work:
 | `docs/DESIGN.md` | Part 1 technical design — how |
 | `docs/MCP.md` | MCP bridge requirements (Part 2) |
 | `docs/INSTALL-ux.md` | How Modelog installs and activates; MCP's two registration targets; the environment matrix. Claims are tagged `[verified]` / `[untested]` |
-| `docs/PLAN-part2.md` | **Start here** — sequenced plan for the next session |
+| `docs/PLAN-recommendations.md` | **Start here** — the current workstream: PRD §7.23's recommendation loop and §7.24's `/handoff` + `/done`. Specification only, no code |
+| `docs/PLAN-part2.md` | The previous workstream — Part 2 Phase 3 (MCP registration), complete and verified 2026-10-07. Kept because its findings constrain what follows |
 
 ---
 
