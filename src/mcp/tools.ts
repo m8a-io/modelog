@@ -1025,7 +1025,8 @@ export const WRITE_TOOLS = [
       "sessions before 120k tokens of context), so Modelog can later compare before and " +
       "after. Use only when the developer asks. Show them the exact marker first and call " +
       "this only after they confirm. Appends one record, timestamped by Modelog; nothing " +
-      "can be edited or deleted through these tools.",
+      "can be edited or deleted through these tools — the developer removes a marker " +
+      "in the Modelog Dashboard.",
     inputSchema: {
       type: "object",
       properties: {

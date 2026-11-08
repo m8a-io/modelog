@@ -80,7 +80,38 @@ export class DashboardPanel {
       case "rescan":
         this.rescanAndRefresh();
         return;
+      case "removeMarker":
+        void this.confirmRemoveMarker(msg.id);
+        return;
     }
+  }
+
+  /**
+   * Invariant 6: a marker is deleted only by the developer, here. The
+   * confirmation is a native modal, not a webview control, so the exact
+   * marker is restated by the host from the store rather than taken from
+   * whatever the webview sent.
+   */
+  private async confirmRemoveMarker(id: string): Promise<void> {
+    const m = this.service.markedChange(id);
+    if (!m) {
+      this.refresh();
+      return;
+    }
+    const what = m.target ? `${m.signal} — ${m.target}` : m.signal;
+    const choice = await vscode.window.showWarningMessage(
+      "Remove this marked change?",
+      {
+        modal: true,
+        detail:
+          `${what}${m.statement ? `\n“${m.statement}”` : ""}\nMarked ${m.when}.\n\n` +
+          "It is deleted from Modelog's store and cannot be restored. Later before/after " +
+          "comparisons will no longer use it.",
+      },
+      "Remove",
+    );
+    if (choice === "Remove") this.service.removeMarker(id);
+    this.refresh();
   }
 
   /**

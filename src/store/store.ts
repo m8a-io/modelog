@@ -30,6 +30,12 @@ export interface Store {
   getCursor(path: string): FileCursor | undefined;
   setCursor(c: FileCursor): void;
   exportJson(): string;
+  /**
+   * Delete one developer-declared marker. The Dashboard's Remove button, after
+   * the developer confirms, is the only caller: invariant 6 puts deletion in
+   * the developer's hands and nowhere else. Returns false if no such marker.
+   */
+  removeMarker(id: string): boolean;
   /** Wipes the rebuildable cache (turns, cursors). Never touches markers. */
   clear(): void;
   close(): void;

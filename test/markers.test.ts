@@ -372,3 +372,36 @@ test("the Dashboard labels agent-drafted fields and unmeasurable signals", async
   assert.equal(u.provenanceNote, null, "nothing drafted, nothing to label");
   assert.equal(u.unmeasurable, true);
 });
+
+test("the Dashboard's remove deletes exactly one marker, and only through the extension's store", { skip: !sqlite }, async () => {
+  const fx = makeStore();
+  try {
+    const a = validateMarkerInput(VALID);
+    const b = validateMarkerInput({ ...VALID, signal: "context-resets", target: undefined, provenance: { signal: "user", statement: "user" } });
+    if (!a.ok || !b.ok) throw new Error("fixture");
+    const ra = await appendMarker(fx.path, a.value, CLIENT, NOW);
+    const rb = await appendMarker(fx.path, b.value, CLIENT, NOW + 1);
+    if (ra.status !== "ok" || rb.status !== "ok") throw new Error("append");
+
+    // The MCP side still cannot delete, even with a known id.
+    const opened = await openAppend(fx.path);
+    if (opened.status !== "ok") throw new Error("open");
+    assert.throws(() => opened.db.prepare("DELETE FROM markers WHERE id = ?").run(ra.marker.id), /not authorized/);
+    opened.db.close();
+
+    const store = new SqliteStore(sqlite, fx.path);
+    assert.equal(store.removeMarker(ra.marker.id), true);
+    assert.equal(store.removeMarker(ra.marker.id), false, "a second remove finds nothing");
+    assert.equal(store.removeMarker("no-such-id"), false);
+    assert.deepEqual(store.allMarkers().map((m) => m.id), [rb.marker.id]);
+    assert.equal(store.turnCount(), FIXTURE_TURNS.length, "removing a marker touches no measured data");
+    store.close();
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("the append tool tells the agent where removal lives", async () => {
+  const { WRITE_TOOLS } = await import("../src/mcp/tools.ts");
+  assert.match(WRITE_TOOLS[0].description, /removes a marker in the Modelog Dashboard/);
+});

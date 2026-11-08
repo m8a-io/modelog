@@ -466,6 +466,17 @@ export class ModelogService {
     return out;
   }
 
+  /** The marked change as the Dashboard shows it, or undefined if it no longer exists. */
+  markedChange(id: string): MarkedChangeView | undefined {
+    const m = this.store.allMarkers().find((x) => x.id === id);
+    return m ? markedChangeView(m) : undefined;
+  }
+
+  /** Deletes one marked change. Called only after the developer confirmed in the Dashboard. */
+  removeMarker(id: string): boolean {
+    return this.store.removeMarker(id);
+  }
+
   exportJson(): string {
     return this.store.exportJson();
   }
@@ -600,6 +611,7 @@ export function markedChangeView(m: DeclaredMarker): MarkedChangeView {
     .filter(([, p]) => p === "generated")
     .map(([f]) => f);
   return {
+    id: m.id,
     when: new Date(m.effectiveAt).toLocaleString(),
     signal: def?.label ?? m.signal,
     target:
