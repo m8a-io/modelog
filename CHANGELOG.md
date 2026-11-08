@@ -2,6 +2,25 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] — Mark a change you decide to make
+
+### Added
+
+- **Mark a change in how you work, from your assistant.** Tell it *"from today I end sessions before 120k context"* and it drafts a marker: which measured signal the change targets, an optional target, and your wording. It records the marker only after you confirm it. Modelog sets the time itself, so a marker cannot be backdated. Markers are the anchor a later release will compare before and after against. **Nothing is scored yet**: this release records markers and lists them, nothing more.
+- **The MCP server's first write, `modelog_mark_change`, deliberately narrow.** It can only add a marker. No tool can edit or delete one, and none can touch your usage data. That is enforced by SQLite on a separate connection, not by convention: the database refuses every other write. Reads keep their read-only connection. On a Node build that cannot enforce this, the tool refuses to save. Every failure says *"Not saved"*, so an assistant cannot report a save that did not happen.
+- **Marked changes in the Dashboard**, on every source tab, with any field your assistant drafted labelled as drafted.
+- Signals you can mark are a fixed list, so every marker is one Modelog can measure later. It includes a new **peak context per session** signal. Fields an assistant drafted are recorded as drafted, and your wording stays on your machine.
+
+### Fixed
+
+- **`modelog_get_markers` reported switching tools as switching models.** It merged Claude Code, Copilot and Codex onto one timeline, so a Copilot session running alongside Claude Code showed up as model switches that never happened. On the maintainer's store that was 35 switches where there were 27. Switches are now detected within each source, as the Dashboard already did, and each one says which source it came from.
+- **An older Modelog no longer marks a newer store as old.** Opening a store with an earlier version used to stamp the earlier schema number on it, after which the newer MCP server refused to read it.
+
+### Changed
+
+- The store schema moves to version 7 (a new `markers` table). On the standard SQLite store, upgrading needs no rescan; the fallback file store rebuilds once from your logs. Markers are the first data in the store that cannot be rebuilt from your logs, so clearing or rebuilding the cache leaves them alone.
+- The MCP server's instructions and tool definitions grow from about 5,800 to 7,900 characters, and every connected session pays for them. This is now measured (character count; token cost estimated, not measured).
+
 ## [0.7.0] — Report a problem without leaking your machine
 
 ### Added

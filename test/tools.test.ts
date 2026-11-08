@@ -9,6 +9,9 @@ import {
   listSessions,
   vendorOf,
   TOOLS,
+  READ_TOOLS,
+  WRITE_TOOLS,
+  WRITE_TOOL_NAMES,
   type ToolContext,
 } from "../src/mcp/tools.ts";
 import { PRICING, RATE_TABLE } from "../src/mcp/rates.ts";
@@ -31,6 +34,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     status: "ok",
     note: null,
     turns: FIXTURE_TURNS,
+    markers: [],
     pricing: PRICING,
     table: RATE_TABLE,
     billing: API_BILLING,
@@ -515,7 +519,7 @@ test("an unknown tool name is an error, not an empty envelope", () => {
 // --- the tools/list surface ------------------------------------------------------------
 
 test("every tool is declared with a name, a description and an object schema", () => {
-  assert.equal(TOOLS.length, 5);
+  assert.equal(TOOLS.length, 6);
   for (const t of TOOLS) {
     assert.match(t.name, /^modelog_/);
     assert.ok(t.description.length > 80, `${t.name} needs a real description`);
@@ -524,18 +528,34 @@ test("every tool is declared with a name, a description and an object schema", (
   }
 });
 
-test("declared tool names match what the dispatcher accepts", () => {
-  for (const t of TOOLS) {
+test("declared read tool names match what the read dispatcher accepts", () => {
+  for (const t of READ_TOOLS) {
     const r = callTool(t.name, {}, ctx());
     assert.ok(r.ok, `${t.name} is declared but not dispatched`);
   }
 });
 
-test("no tool is a write tool — the surface is read-only by construction", () => {
-  // MCP.md §4.1 / PRD invariant 6. A server with no write tools cannot be
-  // talked into writing.
-  for (const t of TOOLS) {
+test("the write surface is exactly the append tools — nothing else writes", () => {
+  // PRD invariant 6, rewritten 2026-11-08; replaces "no tool is a write
+  // tool". Pinned by NAME, so adding any write tool — including stage (b)'s
+  // closure append — fails here until this list is changed on purpose.
+  assert.deepEqual([...WRITE_TOOL_NAMES], ["modelog_mark_change"]);
+  for (const name of WRITE_TOOL_NAMES) {
+    assert.match(name, /^modelog_(mark|save)_/, `${name} must be named as an append`);
+    assert.doesNotMatch(name, /update|delete|edit|remove|set|clear|drop/, name);
+  }
+  // Every other advertised tool reads, and says so.
+  for (const t of READ_TOOLS) {
     assert.match(t.name, /_(get|list|compare)_/, `${t.name} must read, not mutate`);
+    assert.equal(t.annotations.readOnlyHint, true, t.name);
+  }
+  for (const t of WRITE_TOOLS) {
+    assert.equal(t.annotations.readOnlyHint, false, t.name);
+    assert.equal(t.annotations.destructiveHint, false, `${t.name} appends; it destroys nothing`);
+  }
+  // A write tool reached through the read dispatcher is refused, not run.
+  for (const name of WRITE_TOOL_NAMES) {
+    assert.equal(callTool(name, {}, ctx()).ok, false, name);
   }
 });
 

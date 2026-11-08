@@ -70,6 +70,11 @@ function render(state: ViewState): void {
     app.append(el("h2", `Model switches (${state.switches.length})`));
     app.append(switchList(state));
   }
+
+  if (state.markedChanges.length) {
+    app.append(el("h2", `Marked changes (${state.markedChanges.length})`));
+    app.append(markedChangeList(state));
+  }
 }
 
 function mountChart(data: ChartData): void {
@@ -354,6 +359,20 @@ function switchList(state: ViewState): HTMLElement {
     const li = el("li");
     li.append(el("span", s.when, "when"), el("span", s.label, "label"));
     if (s.intraSession) li.append(el("span", "intra-session", "pill"));
+    ul.append(li);
+  }
+  return ul;
+}
+
+function markedChangeList(state: ViewState): HTMLElement {
+  const ul = el("ul", "", "switches");
+  for (const m of state.markedChanges) {
+    const li = el("li");
+    li.append(el("span", m.when, "when"), el("span", m.target ? `${m.signal} — ${m.target}` : m.signal, "label"));
+    if (m.unmeasurable) li.append(el("span", "not measured yet", "pill"));
+    // textContent only (el): the wording is the developer's, stored verbatim.
+    if (m.statement) li.append(el("div", `“${m.statement}”`, "statement"));
+    if (m.provenanceNote) li.append(el("div", m.provenanceNote, "provenance"));
     ul.append(li);
   }
   return ul;

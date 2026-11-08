@@ -109,6 +109,7 @@ test("tools/list advertises every tool with a JSON Schema", { skip: !existsSync(
       "modelog_get_markers",
       "modelog_get_summary",
       "modelog_list_sessions",
+      "modelog_mark_change",
     ]);
 
     for (const t of res.result.tools) {
@@ -230,7 +231,9 @@ test("every advertised tool answers a bare call over the wire", { skip: !existsS
   const { client } = await handshake();
   try {
     const list = await client.request("tools/list");
-    for (const t of list.result.tools) {
+    // The append tool is excluded: a bare call is a missing-argument error by
+    // design, and is covered by its own wire test below.
+    for (const t of list.result.tools.filter((x: any) => x.name !== "modelog_mark_change")) {
       const res = await client.request("tools/call", { name: t.name, arguments: {} });
       assert.ok(res.result, `${t.name} returned no result`);
       assert.ok(!res.result.isError, `${t.name} errored: ${res.result?.content?.[0]?.text}`);
@@ -340,5 +343,45 @@ test("an older store reports mismatch — a reader cannot migrate", { skip: !sql
     assert.match(r.note!, /cannot migrate/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the append tool writes once over stdio and the read tool returns it", { skip: !existsSync(BUNDLE) || !sqlite }, async () => {
+  // The built artifact a client spawns, end to end: initialize records the
+  // client's name, the append connection writes, the read-only one reads.
+  const fx = makeStore();
+  try {
+    const { client } = await handshake({ MODELOG_DB: fx.path });
+    try {
+      const args = {
+        signal: "peak-context",
+        target: 120000,
+        statement: "From today I end sessions before 120k context.",
+        provenance: { signal: "generated", target: "user", statement: "user" },
+        developerApproved: true,
+      };
+      const res = await client.request("tools/call", { name: "modelog_mark_change", arguments: args });
+      assert.ok(!res.result.isError, res.result.content[0].text);
+      const saved = JSON.parse(res.result.content[0].text);
+      assert.equal(saved.status, "ok");
+      assert.equal(saved.data.marker.client.name, "modelog-test");
+
+      const read = await client.request("tools/call", { name: "modelog_get_markers", arguments: { days: 1 } });
+      const env = JSON.parse(read.result.content[0].text);
+      const declared = env.data.markers.filter((m: any) => m.type === "declared-change");
+      assert.equal(declared.length, 1);
+      assert.equal(declared[0].id, saved.data.marker.id);
+
+      const refused = await client.request("tools/call", {
+        name: "modelog_mark_change",
+        arguments: { ...args, developerApproved: false },
+      });
+      assert.equal(refused.result.isError, true);
+      assert.match(refused.result.content[0].text, /^Not saved\./);
+    } finally {
+      client.close();
+    }
+  } finally {
+    fx.cleanup();
   }
 });

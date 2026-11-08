@@ -32,7 +32,9 @@ import type {
   ChartAxis,
   DelegationView,
   DelegationSliceView,
+  MarkedChangeView,
 } from "./ui/protocol.ts";
+import { signalDef, type DeclaredMarker } from "./markers/vocabulary.ts";
 import {
   detectBilling,
   billingCopy,
@@ -336,6 +338,7 @@ export class ModelogService {
       delegation: this.buildDelegation(turns, tot.unit),
       chart,
       switches,
+      markedChanges: [...this.store.allMarkers()].reverse().map(markedChangeView),
       warnings: [...this.warnings],
     };
   }
@@ -579,4 +582,34 @@ function axisFor(max: number, label: (v: number) => string): ChartAxis {
 function shortDay(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y!, m! - 1, d!).toLocaleDateString(undefined, { month: "2-digit", day: "2-digit" });
+}
+
+/**
+ * One marked change for the Dashboard. Fields an agent drafted are labelled as
+ * such (MCP.md §4.1): the developer approved them, but did not write them.
+ */
+export function markedChangeView(m: DeclaredMarker): MarkedChangeView {
+  const def = signalDef(m.signal);
+  const drafted = (
+    [
+      ["signal", m.provenance.signal],
+      ["target", m.provenance.target],
+      ["wording", m.provenance.statement],
+    ] as const
+  )
+    .filter(([, p]) => p === "generated")
+    .map(([f]) => f);
+  return {
+    when: new Date(m.effectiveAt).toLocaleString(),
+    signal: def?.label ?? m.signal,
+    target:
+      m.target === null || m.targetUnit === null
+        ? null
+        : m.targetUnit === "percent"
+          ? `${m.target}%`
+          : `${m.target.toLocaleString()} ${m.targetUnit}`,
+    statement: m.statement,
+    provenanceNote: drafted.length === 0 ? null : `${drafted.join(", ")} drafted by the agent`,
+    unmeasurable: def ? !def.measurable : true,
+  };
 }

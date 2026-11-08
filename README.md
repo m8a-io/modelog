@@ -26,7 +26,7 @@ Modelog answers that from data already sitting on your disk.
 - **Compares models on normalised metrics.** Cost per turn, turns per session, cache hit rate — not raw totals.
 - **Anchors comparisons on real events.** Model switches are detected from the logs, including mid-session, and drawn on the trend chart.
 - **Keeps each assistant in its own unit.** Claude Code and Codex both report in dollars, Copilot in credits — but figures are never summed, compared, or placed on the same axis across assistants, even when the unit matches. Switch between them with one click instead.
-- **Lets your assistant query your own usage data.** A local, read-only MCP server exposes the same metrics as tools, behind an explicit opt-in, with a one-command setup for Claude Code, Copilot and Codex — ask your assistant directly instead of reading a chart.
+- **Lets your assistant query your own usage data.** A local MCP server exposes the same metrics as tools, and can record a change you decide to make in how you work, behind an explicit opt-in, with a one-command setup for Claude Code, Copilot and Codex — ask your assistant directly instead of reading a chart.
 - **Looks like your editor.** Every colour is a VS Code theme variable, so the UI follows your theme — including live theme switches and high-contrast. Enforced in CI.
 
 ## See it in action
@@ -59,7 +59,7 @@ The standalone **Copilot CLI** is a different product and needs none of this: it
 
 ### The MCP bridge — ask your assistant about your own usage
 
-Optional. It lets the assistant you already use query Modelog's metrics as tools, so you can ask *"what did switching models actually change this month?"* rather than reading a chart. It is read-only, has no network surface, and exposes no prompts or code.
+Optional. It lets the assistant you already use query Modelog's metrics as tools, so you can ask *"what did switching models actually change this month?"* rather than reading a chart. It has no network surface and exposes no prompts or code. It reads, with one exception: when you ask your assistant to **mark a change** — *"from today I end sessions before 120k context"* — it can append that one record, after showing it to you. Nothing can be edited or deleted through it, and it can never touch your usage data. Modelog keeps the mark so a later release can show you what changed after it; for now the mark is recorded and listed in the Dashboard, and nothing is scored against it yet.
 
 There is one command per client, because every client is registered by a different mechanism:
 

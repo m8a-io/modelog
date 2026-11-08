@@ -66,6 +66,22 @@ export interface DelegationView {
   chart: ChartData | null;
 }
 
+/**
+ * A change the developer marked (PRD §7.23). Shown on every source tab: it is
+ * about how they work, not which tool they used. `statement` is their approved
+ * wording and is rendered as text only.
+ */
+export interface MarkedChangeView {
+  when: string;
+  signal: string;
+  target: string | null;
+  statement: string | null;
+  /** e.g. "wording drafted by the agent" — so a generated field is never read as attested. */
+  provenanceNote: string | null;
+  /** Set when Modelog cannot measure the signal yet. */
+  unmeasurable: boolean;
+}
+
 export interface SwitchView {
   when: string;
   label: string;
@@ -144,5 +160,7 @@ export interface ViewState {
   delegation: DelegationView;
   chart: ChartData;
   switches: SwitchView[];
+  /** All marked changes, newest first — not range-limited, there are few and they stay relevant. */
+  markedChanges: MarkedChangeView[];
   warnings: string[];
 }

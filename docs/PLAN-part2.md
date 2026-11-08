@@ -4,7 +4,11 @@
 
 **Spec:** `MCP.md` for the server, **`docs/INSTALL-ux.md` §2 for this phase**. Read INSTALL-ux first: registration is two targets with two different mechanisms, and only one of them writes a file. This document is sequencing and session context, not requirements — where it and the spec disagree, the spec wins.
 
-**Phase 3 is complete and fully verified as of 2026-10-07** — both code and the two live-session checks (known unknowns #5 and #8) are done. Everything below is the record of how, kept because the findings constrain whatever comes next. **Next up is not in this document yet**: marketplace publish-readiness and the Copilot adapter, both scoped only as a 2026-10-07 note under "Explicitly not this session" — read that note before picking a next task.
+**Phase 3 is complete and fully verified as of 2026-10-07** — both code and the two live-session checks (known unknowns #5 and #8) are done. Everything below is the record of how, kept because the findings constrain whatever comes next.
+
+> **This is no longer the current plan (2026-11-07).** The active workstream is **`docs/PLAN-recommendations.md`** — PRD §7.23's recommendation loop and §7.24's `/handoff` + `/done`, both specification-only. Read that first.
+>
+> Still unscheduled and still valid as candidates: marketplace publish-readiness and the Copilot adapter, scoped only as a 2026-10-07 note under "Explicitly not this session" — read that note before picking either up.
 
 ---
 

@@ -1,5 +1,7 @@
 import type { Turn, FileCursor } from "../ingest/types.ts";
 import { SCHEMA_VERSION, type Store } from "./store.ts";
+import { MARKERS_DDL, readMarkers } from "./markerRows.ts";
+import type { DeclaredMarker } from "../markers/vocabulary.ts";
 
 /**
  * SQLite backed by Node's built-in `node:sqlite` — no native module, no
@@ -152,7 +154,18 @@ export function migrate(db: any): string[] {
   // that is safe and cannot double-count.
   if (added.length > 0) db.exec("DELETE FROM cursors");
 
-  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  // Schema 7. A new table, so CREATE IF NOT EXISTS suffices on old and new
+  // stores alike; no backfill exists because markers come from no log.
+  db.exec(MARKERS_DDL);
+
+  // Never LOWER the version. Modelog 0.7.0 and earlier stamp their own number
+  // unconditionally, so an older extension opening a store a newer one has
+  // migrated labels it old, and the newer MCP server then refuses it. That
+  // cannot be fixed in releases already shipped; it stops here. The tables a newer
+  // build added survive an older one untouched (it only knows CREATE IF NOT
+  // EXISTS and ADD COLUMN), so keeping the higher number is the true label.
+  const found = db.prepare("PRAGMA user_version").get().user_version as number;
+  if (found < SCHEMA_VERSION) db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   return added;
 }
 
@@ -212,6 +225,10 @@ export class SqliteStore implements Store {
     return rows.map(rowToTurn);
   }
 
+  allMarkers(): readonly DeclaredMarker[] {
+    return readMarkers(this.db);
+  }
+
   turnCount(): number {
     return this.db.prepare("SELECT COUNT(*) AS c FROM turns").get().c as number;
   }
@@ -235,6 +252,9 @@ export class SqliteStore implements Store {
   }
 
   clear(): void {
+    // The rebuildable cache only. `markers` exists in no log, so clearing it
+    // here would destroy the developer's own records (invariant 6: deletion is
+    // the developer's act in the Dashboard, never a side effect).
     this.db.exec("DELETE FROM turns; DELETE FROM cursors;");
   }
 
