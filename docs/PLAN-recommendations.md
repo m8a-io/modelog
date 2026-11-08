@@ -1,6 +1,6 @@
 # Next Session — the recommendation loop (PRD §7.23 / §7.24)
 
-**Status:** specification written 2026-11-07; **step 1 complete 2026-11-07** (`RESEARCH-signals.md`). **Still no code.** Nothing in §7.23 or §7.24 is implemented, scoped, or estimated.
+**Status:** specification written 2026-11-07; **step 1 complete 2026-11-07** (`RESEARCH-signals.md`); **stage 0 complete and design revised 2026-11-08** (see *Redesign* below). **Still no code.** Nothing in §7.23 or §7.24 is implemented, scoped, or estimated.
 
 **Spec:** `PRD.md` §7.23 (the loop), §7.24 (shipping the commands), §7.22 (the closure record this builds on), §7.19 (the authorship rule). Where this document and the PRD disagree, **the PRD wins** — this is sequencing and session context, not requirements.
 
@@ -32,34 +32,55 @@ A long design conversation on 2026-11-06/07 that produced **documentation only**
 
 **Settled by the maintainer this session:** the commands are **deployed via the extension** (an opt-in installer, §7.15 rules). Still open: whether their source lives in this repo or its own (§7.24 Open) — default to **this repo** under a top-level directory unless that turns out to block anything; it is easy to split later and hard to merge.
 
-### What must stay true (from the PRD — re-read §7.19, §7.22, §7.24)
+### Redesign, 2026-11-08 — read this before the stage table
 
-- **The model never authors the record.** The agent drafts; the developer accepts or edits; only confirmed fields are written, each with its provenance (`user` / `generated` / `observed`).
-- **The commands work with Modelog uninstalled** (§7.24 constraint 2). No MCP server, no extension → `/done` still runs the flow and **prints** the record as Markdown. It must never fail because Modelog is absent.
-- **Invariant 6: the MCP server gets no write tools.** The write path is the **inbox file** the extension ingests (§7.22). Do not reopen this.
-- **About 30 seconds, two interactions** (§7.22): blind gut rating first, then one review screen.
-- **Modelog never runs either command automatically**, never nags toward one.
+The maintainer revised the design on 2026-11-08; the PRD carries it (§7.22's revision block, §7.24's nudge amendment, invariant 6 rewritten, `MCP.md` §4.1). In one paragraph: **Modelog now writes, through MCP, append-only, and only what the developer approved.** The inbox file decided on 2026-11-07 is dropped. `/done` is four steps — blind rating; work done with failures **and open items**; OK or abort; statistics after saving — and the score it shows is a **verdict against a change the developer marked**, never a free-standing number. Marked changes also feed small, budgeted MCP server instructions so the agent helps keep the change (§7.24).
 
-### Staged build — each stage verifiable on its own
+### What must stay true
+
+- **The model never authors the record.** The agent drafts; the developer accepts, edits or aborts; only approved fields are written, each with its provenance (`user` / `generated` / `observed`). The server cannot verify the approval — stated as a known gap, with MCP elicitation as the candidate fix (stage c).
+- **The commands work with Modelog uninstalled** (§7.24 constraint 2). No MCP server → `/done` runs all four steps, **prints** the closure, and says it was not saved. It never fails because Modelog is absent.
+- **Invariant 6, rewritten:** append-only closures and markers; no update, no delete, no touch of measured data, no write outside the store.
+- **Statistics come after saving**, so they cannot anchor the rating. **No number without a marker.**
+- **Modelog's own context is budgeted, measured and shown** — tool definitions and server instructions are paid for in every session.
+- **Modelog never runs either command automatically.** It may nudge only toward a change the developer marked, visibly and switchably (§7.24).
+
+### Staged build — agreed sequence, 2026-11-08
 
 | Stage | What | Done when |
 | :-- | :--- | :--- |
-| **0. Verify distribution** | For each target, install a trivial throwaway command and invoke it. Claude Code user scope (`~/.claude/commands/*.md` vs `~/.claude/skills/<name>/SKILL.md` — **neither directory exists here yet**); Copilot Chat prompt files (workspace `.github/prompts/*.prompt.md` and the user-profile location); Codex — **lead found 2026-11-07: `~/.codex/skills/` exists and holds `SKILL.md` files under `.system/`, the same shape as Claude Code skills**, so one artifact may serve both. `claude` is **not** on `PATH` (VS Code extension only), so Claude Code checks need the maintainer to type the command | Every §7.24 row is `[verified]` or `[fails]`, with the exact path and file format. **Nothing below is designed around an `[untested]` row** |
-| **1. The command artifacts** | `/done` and `/handoff` prompt text, written once and rendered per target format. Covers both modes: Modelog present (call MCP, write inbox) and absent (print the record). Tag vocabulary pinned and versioned (§7.22 draft list) | Each command runs end-to-end in at least one tool **with Modelog uninstalled** |
-| **2. Closure record + inbox + store** | The record's schema (§7.22 fields: id, session ref, gut + final rating, summary, result type, tags, time frame, per-field provenance, *when* it was attested — §7.19's recall caveat). The inbox location and file format. Ingest: idempotent by record id. Store: **a new table — today the store holds only `turns` and `cursors`**, so this is a `SCHEMA_VERSION` bump (currently 6). Widen `provenance` past the literal `"observed"` (`src/mcp/tools.ts`) | A hand-written inbox file is ingested once, re-ingested harmlessly, and visible via a read-only query |
-| **3. The installer** | `Modelog: Install /done and /handoff` — reuse `MCP.md` §7.3/§7.4's flow unchanged: show exact file + content, confirm, back up, write, verify, clipboard fallback, never claim an unverified success | Installs into every stage-0-verified target; uninstall/cleanup covered (`src/cleanup/`) |
-| **4. Minimal surface** | Closure records visible somewhere in the Dashboard (a list is enough) and exportable as Markdown/JSON (§7.22) | A developer can see and export what `/done` wrote |
-| **5. `modelog_session_review`** *(may be a second release)* | The read-only MCP tool from §7.22, built on **`RESEARCH-signals.md`'s verified set**, not §7.22's original nine: S1 resume-rebuild cost, S2 context growth, S3 context at break, S5 unread writes (demoted), S7 delegation, S8 switches **with the tautology guard**, plus a `gaps` array. Mechanical-waste findings only until there is rating history | `/done` shows at most 2 tips + 1 praise, each with its baseline, and every gap |
+| **0. Verify distribution** — *done 2026-11-07* | Results in PRD §7.24: **one `SKILL.md`, written to `~/.agents/skills/<name>/` (Codex, Copilot CLI, Copilot Chat) and `~/.claude/skills/<name>/` (Claude Code)**. Copilot Chat confirmed by the maintainer 2026-11-08 | Every row `[verified]` or `[fails]` |
+| **a. Marker write** | Developer-declared markers ("from today I end sessions before 120k context"): a new append-only MCP tool and table, alongside today's derived model-switch markers. **The maintainer has never used markers — test the existing read path (`modelog_get_markers`) first.** Includes the invariant-6 plumbing every later write reuses: a separate narrow write connection (reads stay `readOnly: true`), schema-version refusal as reads do now, `provenance` widened past the literal `"observed"` (`src/mcp/tools.ts:669`), server instructions at `src/mcp/server.ts:95` reworded, and `test/tools.test.ts:534` ("no tool is a write tool") replaced by a test that pins the **exact** write surface: two append tools, nothing else | A marker set from an agent is stored once, visible via `modelog_get_markers` and the Dashboard, and no tool can update or delete it |
+| **b. Closure write + `/done`** | Closure table (`SCHEMA_VERSION` bump, currently 6): id, rating, work-done summary, open items carried forward, time frame (derived), per-field provenance, attested-at. Append tool. `/done` `SKILL.md` with the four steps, both modes (saved / printed-not-saved). Installer per `MCP.md` §7.3/§7.4 into the two stage-0 directories, with cleanup in `src/cleanup/`. Dashboard list + Markdown/JSON export | `/done` saves a closure end-to-end in Claude Code; aborting saves nothing; with MCP absent it prints and says "not saved" |
+| **b2. `/handoff`** | Same closure path, plus a successor brief that keeps context short. Not yet specified beyond §7.24 — whether the brief is stored is still open (question 3 below) | Runs end-to-end in Claude Code, with and without Modelog |
+| **c. Elicitation probe** | Stage-0-style: does each client support MCP elicitation, so the server itself asks for the rating and the OK? Leads from the shipped bundles, 2026-11-08 — **string presence, not invocation**: `elicitation/create` appears in Claude Code 2.1.319's binary, codex-cli 0.162.0's binary and VS Code 1.144's bundle; the Copilot CLI binary is packed and showed nothing either way | Each client `[verified]` / `[fails]` |
+| **d. Verdicts + sufficiency** | Step 4's score against marked changes; plan step 2's sufficiency rule; `RESEARCH-signals.md`'s verified signal set. Until then step 4 shows facts and *"nothing to score"* | A marked change gets a before/after, or a stated "not enough data yet" |
+| **e. Marker-driven nudges** | Active markers rendered into server instructions; token budget set and measured; Dashboard shows the exact text with an off switch | Instructions stay inside budget, appear in the next session, and their cost is visible |
 
-**Recommended release split:** stages 0–4 are a shippable `/done` — a rating, a summary and a result type, recorded durably. That alone answers §12's `log` argument, and it starts accumulating the **rated** sessions that stage 5's *personal-best* tips need anyway. Shipping 0–4 first is the fastest route to the tips, not a detour from them.
+### How `/done` asks its questions — two layers (maintainer request, 2026-11-08)
 
-### Design questions the next session must answer (or ask the maintainer)
+The maintainer wants `/done`'s questions shown in the client's own structured question UI, as Claude Code's `AskUserQuestion` renders them — standard, quick, one click. Every target has such a facility; found 2026-11-08:
 
-1. **How does the agent find the inbox?** The extension's `globalStorageUri` differs per editor and per remote, and the agent cannot guess it. Candidates: a fixed user-level path (e.g. `~/.modelog/inbox/`), or a **read-only** MCP tool that *returns* the path (keeps invariant 6; fails cleanly when Modelog is absent, which constraint 2 needs anyway). Decide before stage 2.
-2. **How does the agent identify its own session id?** (§7.22 Open.) Likely answer: it doesn't — the record carries a timestamp and `cwd`, and ingest joins to the most recent session active in that `cwd` at that time. Check against the real store.
-3. **Timing:** the `/done` turn itself may not have reached the log when the review runs (§7.22 Open). Matters for stage 5, not 0–4.
-4. **Is `/handoff`'s successor brief content?** (§7.24 Open.) Simplest safe answer for v1: the brief is printed for the developer to paste and **never stored**; only the closure record is.
-5. **The abandoned-session path** (§7.19 says required). Out of scope for v1 — but the record schema must not make it impossible later (e.g. a retroactive record must be distinguishable by its attestation time).
+| Client | Native question tool | Evidence |
+| :--- | :--- | :--- |
+| Claude Code | `AskUserQuestion` | **`[verified]`** — used in this repository's own sessions |
+| Copilot Chat (VS Code) | `vscode_askQuestions` | Name in VS Code 1.144's bundle — `[untested]` |
+| Copilot CLI | `ask_user` | 59 calls recorded in `~/.copilot` session logs — used in practice, not yet by a skill |
+| Codex | `request_user_input` | Name in codex-cli 0.162.0's binary — `[untested]` |
+
+1. **Layer 1, stage b — the native tool.** The skill says: *ask each step with your structured question tool if you have one, otherwise in plain text*. No tool names are hard-coded, so one `SKILL.md` serves all four, and it works with Modelog uninstalled. The agent relays the answers, so the approval gap in `MCP.md` §4.1 remains.
+2. **Layer 2, after stage c — MCP elicitation, where verified.** The server itself shows the form and receives the answer; the model never handles the rating or the OK, which closes that gap. Only in saving mode (MCP is present by definition), falling back to layer 1 per client.
+
+Design constraint to carry into stage b: question tools are option lists (`AskUserQuestion` takes 2–4 options), and **a 1–10 rating does not fit four buttons**. Candidates: free-text entry via the tool's *Other* field, or two taps (band, then value). Elicitation has a native `number` field with `minimum`/`maximum`, which is one more reason to want layer 2.
+
+### Design questions still open
+
+1. ~~How does the agent find the inbox?~~ **Moot, 2026-11-08** — the inbox was dropped for an append-only MCP write. (It was decided as `~/.modelog/inbox/` on 2026-11-07; recorded so the reversal is visible.)
+2. **How does the agent identify its own session id?** (§7.22 Open.) Likely answer: it doesn't — the closure carries a timestamp and `cwd`, and the store joins to the most recent session active in that `cwd` at that time. Check against the real store. Needed by stage b.
+3. **Is `/handoff`'s successor brief stored?** Open items are now stored with the closure (maintainer, 2026-11-08); whether the fuller brief joins them, or is only printed for pasting, is undecided. Needed by stage b2.
+4. **Timing:** the `/done` turn itself may not have reached the log when statistics run (§7.22 Open). Matters for stage d.
+5. **The abandoned-session path** (§7.19 says required). Out of scope for v1 — the closure schema must not make it impossible later (a retroactive closure is distinguishable by its attestation time).
+6. **The token budget's number.** Needs today's footprint measured first (five tool definitions plus instructions), then a ceiling. Stage e at the latest; measuring it is cheap and could happen in stage a.
 
 ---
 

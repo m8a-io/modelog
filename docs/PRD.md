@@ -469,6 +469,8 @@ A handoff command bundles two separable things, and they belong to different pro
 - **As a cost-saving workflow** — out of scope here. Shorter sessions save money, but performing the handoff is a Claude Code skill or plugin, not an extension feature.
 
 > **Independence rule:** Modelog may *measure* whether a handoff practice saved money. It must not *perform* the handoff it then scores. A measurement tool that also dispenses the advice it evaluates has no standing to report the result.
+>
+> *Amended 2026-11-08: Modelog may nudge toward a change the developer herself marked, under three conditions — see §7.24.*
 
 ##### `/close` as the counterpart to `/handoff` (initial idea, 2026-10-29)
 
@@ -568,6 +570,23 @@ If the data shows no relationship, that is a publishable result too, and cheaper
 **What this is.** The concrete interaction that fills §7.19's outcome record. §7.19's `/close` is renamed **`/done`**; it is the same record and the same rules — the model never authors it, provenance stays per field, and the abandoned-session path is still required. This section adds what §7.19 left open: what the developer actually sees, where improvement tips come from, and who defines "good".
 
 **Why it matters commercially.** Spend dashboards are commodity (§4, row 9 of §11). What no tool connects is **behaviour, cost and outcome on one timeline, per developer, over time**. The closure record is where those three meet, and the trend it produces — "am I getting better at working with AI?" — is the value a developer pays to keep (§7.14). Efficiency counts, not only savings: better work for the same spend is a win the record must be able to show.
+
+> **Revised 2026-11-08 by the maintainer — this block supersedes the flow, the write path and the tag list below where they differ.** The record is now called a **closure**.
+>
+> **The flow, in this order:**
+>
+> 1. **Rating, 1–10**, asked blind. 1 very poor, 10 very good. The agent does not comment on it.
+> 2. **The work done** — accomplishments **and failures** — **plus open items**: anything raised in the conversation and not resolved. Pointing these out is a primary job of `/done`, not a courtesy: a developer often feels done before the work is. Each open item can be carried to the next session's work.
+> 3. **OK to save, or abort.** On OK, the closure is saved. On *"I missed those, let's do them"*, `/done` stops and **nothing is saved** — the rating is discarded with it. Open items come *before* this step because they are what may cause the abort.
+> 4. **Statistics, after saving.** Shown only once the closure is stored, so the rating cannot be anchored by them. With a **marked change** (§7.23) the session is scored against that change — the verdict. With none, the facts against the developer's own history and *"no change marked yet — nothing to score"*. **No number is shown without a marker**: a number labelled "not counted" is still a number people anchor on, which is §7.23's argument against the grade.
+>
+> **Stored in the closure:** rating, work-done summary, open items carried forward (developer-approved; readable by a later session over MCP), time frame (derived), provenance per field, and when it was attested (§7.19's recall caveat). Open items are the **second content-adjacent field** after the summary, under the same terms: developer-approved, local-only, and off the machine only through §7.11's sync with its own toggle.
+>
+> **Dropped for v1:** behaviour tags (the vocabulary below is kept for later), and a final rating separate from the gut rating — the statistics now come after saving, so there is nothing to revise the rating against.
+>
+> **The write path is MCP**, not the inbox file described under *The write path* below — invariant 6 is rewritten to allow two append-only records (`MCP.md` §4.1). The Modelog MCP server is a prerequisite for **saving**. Without it, `/done` still runs all four steps, prints the closure as Markdown, and says plainly that it was not saved (§7.24 constraint 2).
+>
+> **`/handoff` stays a separate command.** It is a deliberate break to keep context short and carries a brief for the successor session. `/done`'s open items are its only overlap with it.
 
 ##### The flow: two interactions, about 30 seconds
 
@@ -680,6 +699,8 @@ Shipped as a Claude Code slash command or skill, and as a Copilot prompt file (d
 6. Write only what the developer confirmed, with each field's provenance.
 
 ##### The write path, and the record as a product
+
+> *Superseded 2026-11-08: the write path is an append-only MCP tool, not an inbox file — see the revision block at the top of §7.22.*
 
 The MCP server stays read-only (invariant 6). Step 6 writes a closure record to a local **inbox file**; the extension ingests it into the store. Any tool can feed the inbox, and the model never writes to the store.
 
@@ -796,6 +817,16 @@ They exist primarily because **ending a session deliberately is itself the pract
 
 Where the rule still binds: Modelog must not perform a handoff automatically, must not nag toward one, and must report "it did nothing" when that is what the data says (§7.23).
 
+> **Amended 2026-11-08 by the maintainer — developer-marked nudges.** The agent should not start from scratch each session in helping a developer keep a change she chose. Modelog may therefore put her **active marked changes** (§7.23) into its MCP server instructions, which clients place in the agent's context at session start — e.g. *"The developer is working on ending sessions before ~120k context (marked 2026-11-08). At a natural break point near that, suggest `/handoff`."* This **knowingly weakens** §7.19's independence rule: Modelog now nudges a behaviour it then measures. It is allowed only under all three conditions:
+>
+> 1. **Only changes the developer marked.** The nudge restates her own commitment; Modelog never originates one.
+> 2. **Visible and switchable.** The exact injected text is shown in the Dashboard and can be turned off, per change or entirely.
+> 3. **Disclosed in every verdict.** A before/after on a nudged change says the nudge was active, and "it did nothing" remains a reportable outcome.
+>
+> **And the text is held to a token budget** (`MCP.md` §4.1): instructions are paid for in every session, so they stay as small as the marked changes allow, and their measured cost is shown alongside what they are meant to save.
+>
+> Verification status: server instructions reaching the agent is **`[verified]` for Claude Code in VS Code** (this repository's own sessions carry Modelog's current instructions). Copilot Chat, the Copilot CLI and Codex are `[untested]`. Instructions are read at session start, so a newly marked change takes effect in the **next** session.
+
 ##### How they are distributed — mechanism open, precedent available
 
 **No VS Code extension API contributes a slash command into Claude Code, Copilot Chat or Codex.** Each reads commands from its own on-disk convention, so distribution means writing a file into a directory another tool owns, or shelling out to that tool's CLI.
@@ -813,6 +844,24 @@ Verification status, measured on the development machine 2026-11-07:
 | Any — via the vendor's CLI | as with `codex mcp add` | `[untested]` for commands; **`[verified]` for MCP registration** (2026-10-22) |
 
 `codex` and `copilot` are on `PATH` here; `claude` is not — the same asymmetry `PLAN-part2.md` records for MCP registration, and the reason Claude Code's path there is a file write rather than a CLI call.
+
+> **Stage 0 run 2026-11-07 — every row above re-measured by invoking it.** Method: a throwaway probe in each candidate location, each with a unique name and a unique reply token, so a reply identifies which directory it was loaded from. Codex and the Copilot CLI were invoked headlessly (`codex exec`, `copilot -p`); Claude Code and Copilot Chat were invoked by the maintainer in the VS Code UI. Remote-WSL, VS Code 1.144.0, codex-cli 0.162.0, Copilot CLI 1.0.94, Claude Code extension 2.1.319.
+>
+> | Location (user scope) | Claude Code | Copilot Chat (VS Code) | Copilot CLI | Codex |
+> | :--- | :--- | :--- | :--- | :--- |
+> | `~/.agents/skills/<name>/SKILL.md` | **`[fails]`** | **`[verified]`** | **`[verified]`** | **`[verified]`** |
+> | `~/.claude/skills/<name>/SKILL.md` | **`[verified]`** | **`[fails]`** — absent, though VS Code's default list names it | **`[fails]`** | — |
+> | `~/.claude/commands/<name>.md` | **`[verified]`** | — | — | — |
+> | `~/.copilot/skills/<name>/SKILL.md` | — | **`[verified]`** | **`[verified]`** | — |
+> | `~/.codex/skills/<name>/SKILL.md` | — | — | — | **`[verified]`** |
+> | `~/.codex/prompts/<name>.md` | — | — | — | **`[fails]`** in `exec` — see below |
+>
+> `—` = not probed. Copilot Chat rows confirmed by the maintainer invoking both probes, 2026-11-08.
+>
+> - **One `SKILL.md` format serves all four tools; one directory does not.** The minimal install is the same file written twice: `~/.agents/skills/<name>/` (Codex, Copilot CLI, Copilot Chat — all three `[verified]`) and `~/.claude/skills/<name>/` (Claude Code). `~/.claude/commands/` works but is a second format for no gain.
+> - **Copilot Chat prompt files are the wrong format for a user-level install.** Their only default location is the workspace's `.github/prompts/` (writing into a user's repository) or the per-profile folder, which under Remote-WSL is on the **Windows** side (`%APPDATA%/Code/User/[profiles/<id>/]prompts`). Skills cover Copilot Chat from the remote's own home instead. VS Code's default skill roots, read from its bundle: personal `~/.agents/skills`, `~/.copilot/skills`, `~/.claude/skills`; workspace `.agents/skills`, `.github/skills`, `.claude/skills`. Under Remote-WSL, `~` resolved to the **WSL** home.
+> - **The Codex `/prompts:` probe returned the right token and still failed.** `codex exec` does not expand the prompt; the model ran `rg` over `$HOME`, found the probe file and obeyed it. A reply token alone is not proof — the Copilot CLI probes were therefore run with no tools granted, and showed an explicit `skill(<name>)` call.
+> - **Not probed:** the Codex VS Code extension (`openai.chatgpt` is not installed in this remote), and every non-WSL environment in `INSTALL-ux.md` §5.
 
 **No row above may be designed around until it is verified.** Install UX is a §7.15 concern and inherits its rules: opt-in, never a side effect of onboarding, and a copy-to-clipboard fallback wherever the automatic path is unavailable (`MCP.md` §7.4).
 
@@ -948,7 +997,7 @@ Each of these is load-bearing for a promise the product makes. Several are enfor
 3. **An unknown model — or an unknown pricing modifier — costs `null`, never a default.** A visible gap beats a confidently wrong number.
 4. **No literal colours in `src/webview/`.** Every colour is a VS Code theme variable; `scripts/check-theme.sh` fails the build otherwise.
 5. **No cross-vendor cost comparison.** See §4.5. A hard product constraint, not a roadmap gap.
-6. **The MCP server has no write tools.** Read-only, structurally (`MCP.md` §4.1).
+6. **The MCP server never mutates measured data and never writes outside Modelog's store.** It may *append* developer-approved records of two kinds — closures (§7.22) and markers (§7.23) — schema-validated, never updating or deleting. Edits and deletions happen only in the Dashboard, by the developer. (`MCP.md` §4.1. Rewritten 2026-11-08 from *"The MCP server has no write tools"* — see §7.22's 2026-11-08 revision for why.)
 7. **Thinking tokens are already inside `output_tokens`.** Never added again.
 
 **The content boundary is per-component, not global.** The extension and any future backend never read content — that is invariant 1 in its strict form. The MCP/Ollama meta-inference engine *does* read content locally, because categorising work requires it. It never emits content to the extension, and never off the machine. Content leaves the local machine only through an explicitly opt-in tool (e.g. work-log export to a ticketing system), where the user directs the destination and owns that decision. No content is ever used by Adduco Digital GmbH or passed to third parties. The three claims are separable and must be stated separately: **never transmitted** (absolute), **never persisted to the store** (absolute), **never read** (component-scoped, opt-in where relaxed).

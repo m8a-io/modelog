@@ -19,7 +19,7 @@ The strategic point (PRD §7.6): Modelog does not need to ship an analysis model
 
 ## 2. Non-Goals
 
-- **Not a write surface.** The server exposes no tool that mutates anything, in Modelog or anywhere else (§4.1).
+- **Not a write surface — except two append-only records.** The server never mutates measured data and writes nowhere outside Modelog's store. Since 2026-11-08 it may append developer-approved closures and markers, and nothing else (§4.1).
 - **Not a network service.** No listening socket, no port, no remote access (§5).
 - **Not a content channel.** Prompts and code never pass through it (§4.3).
 - **Not gated.** MCP is a local capability requiring no server, and is never placed behind registration, an account, or a paid tier.
@@ -44,6 +44,20 @@ The strategic point (PRD §7.6): Modelog does not need to ship an analysis model
 ### 4.1 No write tools
 
 Draft-then-approve (PRD §7.9) is satisfied **structurally**, not by policy. The agent drafts a timesheet or ticket entry; the user approves it inside Jira, Toggl, or wherever it belongs. Modelog holds no third-party credentials and writes nowhere. A server with no write tools cannot be talked into writing.
+
+> **Narrowed 2026-11-08 — two append-only writes (PRD invariant 6, rewritten).** `/done` must save a closure and a developer must be able to mark a deliberate change, and both need a write path. The maintainer decided it is MCP, with MCP a prerequisite for *saving* (not for running the commands — PRD §7.24 constraint 2). A local inbox file the extension ingests was decided on 2026-11-07 and dropped the next day for this.
+>
+> What the original rule protected, and how each part survives:
+>
+> | Protected | Still holds because |
+> | :--- | :--- |
+> | No writes outside Modelog | Unchanged. No third-party credentials, no file writes, no network |
+> | Measured data cannot be altered or destroyed | The two tools **append** to their own tables. No update, no delete, no access to `turns` or `cursors`. Edits and deletions are Dashboard-only, by the developer |
+> | Nothing the developer did not approve | **Not enforceable by the server, and stated as such.** The agent reports that the developer approved. Each field carries its provenance (`user` / `generated` / `observed`) so a generated field is never mistaken for an attested one. Candidate fix, `[untested]`: MCP **elicitation**, where the server asks the developer directly through the client's UI and the model never handles the rating or the approval |
+>
+> Implementation constraint carried forward: today's connection is `readOnly: true` (`src/mcp/readOnlyStore.ts`) and cannot migrate. The write path must not weaken that for reads — a separate, narrow write connection for the two inserts, refusing a store whose schema version it does not match, exactly as reads do now.
+>
+> **Modelog's own context has a budget.** Server instructions and tool definitions are injected into every session of every connected client and are paid for at that client's rates. A product that charges for saving tokens must not cost more than it saves. Their size is measured, held to a stated budget, and shown in the Dashboard as a cost like any other — this applies to today's five tool definitions, not only to the marker-driven instructions PRD §7.24 adds.
 
 ### 4.2 Untrusted strings
 
