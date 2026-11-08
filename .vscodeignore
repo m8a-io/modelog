@@ -11,6 +11,7 @@ CLAUDE.md
 CONTRIBUTING.md
 .gitignore
 .mcp.json
+.claude/
 **/*.map
 # Only the icon needs to be IN the package -- package.json's "icon" field
 # requires the file physically present, and vsce hard-errors without it.
