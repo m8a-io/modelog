@@ -15,7 +15,9 @@ export type WebviewMessage =
   | { type: "ready" }
   | { type: "setRange"; days: number | null }
   | { type: "setSource"; source: string }
-  | { type: "rescan" };
+  | { type: "rescan" }
+  /** Asks the host to remove one marked change. The host confirms with the developer first. */
+  | { type: "removeMarker"; id: string };
 
 export interface ModelRowView {
   model: string;
@@ -72,6 +74,7 @@ export interface DelegationView {
  * wording and is rendered as text only.
  */
 export interface MarkedChangeView {
+  id: string;
   when: string;
   signal: string;
   target: string | null;

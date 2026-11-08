@@ -370,6 +370,10 @@ function markedChangeList(state: ViewState): HTMLElement {
     const li = el("li");
     li.append(el("span", m.when, "when"), el("span", m.target ? `${m.signal} — ${m.target}` : m.signal, "label"));
     if (m.unmeasurable) li.append(el("span", "not measured yet", "pill"));
+    // The host asks for confirmation; this only requests it.
+    const remove = el("button", "Remove", "ghost remove");
+    remove.addEventListener("click", () => vscode.postMessage({ type: "removeMarker", id: m.id }));
+    li.append(remove);
     // textContent only (el): the wording is the developer's, stored verbatim.
     if (m.statement) li.append(el("div", `“${m.statement}”`, "statement"));
     if (m.provenanceNote) li.append(el("div", m.provenanceNote, "provenance"));

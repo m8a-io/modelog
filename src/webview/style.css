@@ -191,6 +191,7 @@ tbody tr:hover { background: var(--vscode-list-hoverBackground); }
 .switches .label { font-weight: 500; }
 /* Marked changes: the wording and its provenance sit on their own lines. */
 .switches li:has(.statement) { flex-wrap: wrap; }
+.switches .remove { margin-left: auto; }
 .switches .statement { flex-basis: 100%; font-style: italic; }
 .switches .provenance {
   flex-basis: 100%; font-size: .85em;

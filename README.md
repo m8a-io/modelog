@@ -59,7 +59,7 @@ The standalone **Copilot CLI** is a different product and needs none of this: it
 
 ### The MCP bridge — ask your assistant about your own usage
 
-Optional. It lets the assistant you already use query Modelog's metrics as tools, so you can ask *"what did switching models actually change this month?"* rather than reading a chart. It has no network surface and exposes no prompts or code. It reads, with one exception: when you ask your assistant to **mark a change** — *"from today I end sessions before 120k context"* — it can append that one record, after showing it to you. Nothing can be edited or deleted through it, and it can never touch your usage data. Modelog keeps the mark so a later release can show you what changed after it; for now the mark is recorded and listed in the Dashboard, and nothing is scored against it yet.
+Optional. It lets the assistant you already use query Modelog's metrics as tools, so you can ask *"what did switching models actually change this month?"* rather than reading a chart. It has no network surface and exposes no prompts or code. It reads, with one exception: when you ask your assistant to **mark a change** — *"from today I end sessions before 120k context"* — it can append that one record, after showing it to you. It cannot edit or delete anything, including markers, and it can never touch your usage data. You remove a marker yourself in the Dashboard. Modelog keeps the mark so a later release can show you what changed after it; for now the mark is recorded and listed in the Dashboard, and nothing is scored against it yet.
 
 There is one command per client, because every client is registered by a different mechanism:
 

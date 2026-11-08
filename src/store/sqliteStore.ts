@@ -229,6 +229,11 @@ export class SqliteStore implements Store {
     return readMarkers(this.db);
   }
 
+  removeMarker(id: string): boolean {
+    const r = this.db.prepare("DELETE FROM markers WHERE id = ?").run(id);
+    return Number(r.changes) > 0;
+  }
+
   turnCount(): number {
     return this.db.prepare("SELECT COUNT(*) AS c FROM turns").get().c as number;
   }
