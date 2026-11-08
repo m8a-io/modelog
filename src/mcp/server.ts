@@ -7,14 +7,19 @@ import {
 import { SCHEMA_VERSION } from "../store/store.ts";
 import { openReadOnly, readTurns } from "./readOnlyStore.ts";
 import { PRICING, RATE_TABLE } from "./rates.ts";
-import { callTool, TOOLS, type ToolContext } from "./tools.ts";
+import { callTool, callWriteTool, TOOLS, WRITE_TOOL_NAMES, type ToolContext, type ToolResult } from "./tools.ts";
+import { readMarkers } from "../store/markerRows.ts";
+import type { DeclaredMarker } from "../markers/vocabulary.ts";
 import { detectBilling, type BillingInfo } from "../ingest/billing.ts";
 import type { Turn } from "../ingest/types.ts";
 
 /**
  * Modelog MCP server (MCP.md).
  *
- * A thin, read-only adapter over the Part 1 store and metrics modules. It
+ * A thin adapter over the Part 1 store and metrics modules. It reads through
+ * a `readOnly: true` connection; its only writes are the append tools in
+ * `WRITE_TOOLS`, through the separate, authorizer-narrowed connection in
+ * `appendStore.ts` (PRD invariant 6). It
  * imports the cost engine and aggregates directly rather than restating them,
  * because a second implementation of the maths would let the bridge and the
  * dashboard drift apart — a correctness risk, not a convenience (MCP.md §5).
@@ -65,9 +70,11 @@ export async function buildContext(now: number = Date.now()): Promise<ToolContex
   const { billing, fromEnv } = resolveBilling();
 
   let turns: readonly Turn[] = [];
+  let markers: readonly DeclaredMarker[] = [];
   if (opened.status === "ok") {
     try {
       turns = readTurns(opened.db);
+      markers = readMarkers(opened.db);
     } finally {
       opened.db.close();
     }
@@ -77,6 +84,7 @@ export async function buildContext(now: number = Date.now()): Promise<ToolContex
     status: opened.status,
     note: opened.note,
     turns,
+    markers,
     pricing: PRICING,
     table: RATE_TABLE,
     billing,
@@ -91,13 +99,15 @@ export function createServer(): Server {
     { name: NAME, version: VERSION },
     {
       capabilities: { tools: {} },
+      // Paid for in every session of every connected client (MCP.md §4.1's
+      // context budget), so every word here has to earn its place.
       instructions:
-        "Modelog exposes read-only metrics derived from your own local AI " +
-        "coding-assistant session logs. It holds no prompts or code. All " +
-        "tools are read-only; there is no way to mutate anything through it. " +
-        "Several metrics have semantics their names do not convey, so " +
-        "modelog_get_definitions describes them and is worth reading before " +
-        "interpreting the other tools' numbers.",
+        "Modelog exposes metrics derived from your own local AI coding-assistant " +
+        "session logs. It holds no prompts or code. Every tool only reads, except " +
+        "modelog_mark_change, which appends one developer-approved record; nothing " +
+        "can be edited or deleted through Modelog. Several metrics have semantics " +
+        "their names do not convey, so modelog_get_definitions describes them and " +
+        "is worth reading before interpreting the other tools' numbers.",
     },
   );
 
@@ -113,8 +123,18 @@ export function createServer(): Server {
     const args = (req.params.arguments ?? {}) as Record<string, unknown>;
 
     try {
-      const ctx = await buildContext();
-      const result = callTool(name, args, ctx);
+      let result: ToolResult<unknown>;
+      if (WRITE_TOOL_NAMES.includes(name)) {
+        // Writes never build the read context: they open their own narrow
+        // connection and nothing else.
+        const client = server.getClientVersion();
+        result = await callWriteTool(name, args, {
+          dbPath: process.env.MODELOG_DB,
+          client: { name: client?.name ?? null, version: client?.version ?? null },
+        });
+      } else {
+        result = callTool(name, args, await buildContext());
+      }
 
       if (!result.ok) {
         // A bad argument or an unknown tool is the caller's error, and is
@@ -131,10 +151,10 @@ export function createServer(): Server {
       // a clear error. It must never take the server down, because the next
       // call may well succeed.
       const detail = e instanceof Error ? e.message : String(e);
-      return {
-        isError: true,
-        content: [{ type: "text", text: `Modelog could not read its store: ${detail}` }],
-      };
+      const text = WRITE_TOOL_NAMES.includes(name)
+        ? `Not saved. Modelog could not write to its store: ${detail}`
+        : `Modelog could not read its store: ${detail}`;
+      return { isError: true, content: [{ type: "text", text }] };
     }
   });
 

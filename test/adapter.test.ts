@@ -26,6 +26,7 @@ function fakeStore(): Store & { turns: Turn[]; cursors: Map<string, FileCursor> 
     backend: "file",
     upsertTurns: (t) => { turns.push(...t); },
     allTurns: () => turns,
+    allMarkers: () => [],
     turnCount: () => turns.length,
     getCursor: (p) => cursors.get(p),
     setCursor: (c) => { cursors.set(c.path, c); },

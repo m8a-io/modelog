@@ -163,7 +163,7 @@ Owning the config-file format of every MCP client is not a v1 commitment.
 
 ## 8. Tool Surface
 
-All tools are read-only. Range arguments accept either `days` (integer, relative to now) or explicit ISO-8601 `from` / `to`; omitted means the last 30 days.
+Every tool reads, except the append tools in §8.8 (invariant 6, rewritten 2026-11-08). Range arguments accept either `days` (integer, relative to now) or explicit ISO-8601 `from` / `to`; omitted means the last 30 days.
 
 ### 8.1 `modelog_get_definitions`
 
@@ -212,9 +212,14 @@ Costs appear only within a single vendor's data. If the store ever holds multipl
 
 ### 8.5 `modelog_get_markers`
 
-`{ days? | from?, to? }` → observed anchors, currently model switches: timestamp, from, to, and whether the switch was intra-session.
+`{ days? | from?, to? }` → anchors in the range, oldest first, of two types:
 
-Every marker carries its `provenance` (PRD §6). v1 returns `observed` only; when inferred markers ship they are labelled as such so an agent can weight them differently.
+- **`model-switch`** — `provenance: "observed"`, derived from `turns` on every read and never stored: timestamp, `source`, from, to, and whether the switch was intra-session.
+- **`declared-change`** — `provenance: "user"`, a change the developer marked through §8.8, read from the `markers` table: signal, optional target with its unit, the approved wording, `fieldProvenance` per field (`user` / `generated`), whether the signal is measurable yet, attestation time and the client that wrote it.
+
+Every marker carries its `provenance` (PRD §6), so an agent can weight them differently.
+
+> **Switches are detected per source — corrected 2026-11-08.** Until then this tool merged Claude Code, Copilot and Codex onto one timeline, while the Dashboard partitioned by source first. Run side by side, the tools interleave, so a change of **tool** was reported as a change of **model**: on the maintainer's store, 35 reported switches over 30 days, of which 27 survive partitioning. The claim below that "they cannot drift" was true of the subagent exclusion only. Both now partition. Still open, not fixed: 6 of the 16 Copilot switches are `gpt-4o-mini` round-trips inside one session, which look like Copilot's own background calls rather than a choice — `[untested]`.
 
 **Subagent turns are excluded before switches are detected — a correctness fix, not a preference (added 2026-10-04).** A marker anchors something the *developer* did. A subagent dispatch changes the model without the developer choosing anything, and because control returns to the original model afterwards, **each isolated subagent turn manufactures two spurious switches**. Measured on a real store: 29 sidechain turns out of 1,603 (1.8% of turns) produced 2 of 6 reported switches — a third of all markers were noise. The count excluded is returned as `sidechainTurnsExcluded` and stated in `notes`, so the filtering is visible rather than silent.
 
@@ -246,6 +251,20 @@ Every tool returns a common envelope:
 > **Implemented 2026-10-07, with the second unit now real.** `Unit` is `"usd_micro" | "aiu_nano"`, and **no function converting between them exists anywhere in the codebase** — a test asserts none appears. That absence is what makes §4.5's ban on cross-vendor cost comparison structural rather than a rule someone has to remember: with no path to a common unit, the ratio is not expressible. Copilot amounts are formatted as credits and never as dollars, so two figures are not even visually comparable.
 >
 > A third cause of a `null` cost now exists: **a source that reports no cost for a turn.** Copilot's cost is measured per request rather than derived, so a Copilot turn missing `copilotUsageNanoAiu` is unpriced for a reason that has nothing to do with the rate table.
+
+### 8.8 `modelog_mark_change` — the first append tool *(stage a, 2026-11-08)*
+
+`{ signal, target?, statement?, provenance, developerApproved: true }` → the stored `declared-change` marker, in the §8.7 envelope.
+
+- **`signal`** is a closed, versioned list (`src/markers/vocabulary.ts`): S1–S3, S5–S8 and S10 from `RESEARCH-signals.md`, plus `peak-context` for PRD §7.24's own example, which none of those expresses. A change that names no measurable signal can never get a verdict, so it is refused rather than stored. `unsupervised-run` (S6) is accepted but flagged unmeasurable until ingest captures it.
+- **`statement`** is the developer's wording, ≤ 200 characters — content-adjacent, local-only, returned as a typed field and **never rendered into server instructions**; stage e's nudges are built from signal + target + date only.
+- **Times are the server's clock.** `effectiveAt = attestedAt`; the tool accepts no time, so a before/after window cannot be placed retroactively.
+- **A repeat within ten minutes is a retry**, returning the stored marker with `duplicate: true`.
+- **Every failure begins "Not saved."** and is an error result, so an agent cannot report a save that did not happen.
+
+**How the write stays narrow** (`src/mcp/appendStore.ts`): a separate connection per call — reads stay `readOnly: true` — with an SQLite **authorizer** that permits INSERT into `markers` and nothing else that writes (no UPDATE, DELETE, DDL, PRAGMA or ATTACH; no touch of `turns` or `cursors`). Where the host Node lacks `setAuthorizer` the tool refuses rather than write unguarded — verified present on Node 24.21 and on the VS Code server's 24.22.1; a native VS Code host's bundled Node is `[untested]`. It refuses any store whose schema version is not exactly its own, and never creates a store. `test/tools.test.ts` pins the write surface **by name**, so stage b's closure tool has to change that test on purpose.
+
+**Markers are the first rows in the store that cannot be rebuilt** from any log. `clear()` and every turn migration leave the `markers` table alone, and a test holds that.
 
 ---
 
