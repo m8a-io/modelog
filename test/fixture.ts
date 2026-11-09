@@ -147,3 +147,6 @@ export function makeStore(turns: readonly Turn[] = FIXTURE_TURNS): Fixture {
 export function makeEmptyStore(): Fixture {
   return makeStore([]);
 }
+
+/** A server that observed nothing about its caller: no chat id, cwd or tool. */
+export const NO_OBSERVATION = { chatSessionId: null, chatSessionIdSource: null, cwd: null, source: null } as const;

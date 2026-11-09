@@ -11,7 +11,7 @@ import { SqliteStore } from "../src/store/sqliteStore.ts";
 import { SCHEMA_VERSION } from "../src/store/store.ts";
 import { getMarkers, markChange, type ToolContext } from "../src/mcp/tools.ts";
 import { PRICING, RATE_TABLE } from "../src/mcp/rates.ts";
-import { FIXTURE_TURNS, makeStore, sqlite, BASE_TS, turn } from "./fixture.ts";
+import { FIXTURE_TURNS, makeStore, sqlite, BASE_TS, turn, NO_OBSERVATION } from "./fixture.ts";
 
 /**
  * Developer-declared markers (PRD §7.23) and the append-only write path
@@ -36,6 +36,8 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     note: null,
     turns: FIXTURE_TURNS,
     markers: [],
+    workRecords: [],
+    observed: NO_OBSERVATION,
     pricing: PRICING,
     table: RATE_TABLE,
     billing: { mode: "api", detected: true, rawType: "prepaid" },
@@ -115,7 +117,7 @@ test("every signal in the vocabulary has a unique id and a label", () => {
 
 // --- the append connection: narrow at the database ----------------------------------
 
-test("the append connection refuses every write except INSERT into markers", { skip: !sqlite }, async () => {
+test("the append connection refuses every write except INSERT into markers and work_records", { skip: !sqlite }, async () => {
   const fx = makeStore();
   try {
     const opened = await openAppend(fx.path);
@@ -135,6 +137,14 @@ test("the append connection refuses every write except INSERT into markers", { s
         "ALTER TABLE markers ADD COLUMN x TEXT",
         "PRAGMA user_version = 1",
         "ATTACH DATABASE ':memory:' AS other",
+        // Schema 8: work records are append-only too, and the origin id is
+        // the extension's to make, never the MCP server's to rewrite.
+        "UPDATE work_records SET rating = 10",
+        "DELETE FROM work_records",
+        "DROP TABLE work_records",
+        "INSERT INTO meta (key, value) VALUES ('origin_id2', 'x')",
+        "UPDATE meta SET value = 'x'",
+        "DELETE FROM meta",
       ];
       for (const sql of forbidden) {
         assert.throws(() => db.prepare(sql).run(), /not authorized/, sql);
@@ -294,7 +304,7 @@ test("declared markers appear alongside switches, in time order, with provenance
   const fx = makeStore();
   try {
     const at = BASE_TS + 86_400_000; // between the fixture's switches
-    const r = await markChange(VALID, { dbPath: fx.path, client: CLIENT, now: at });
+    const r = await markChange(VALID, { dbPath: fx.path, client: CLIENT, observed: NO_OBSERVATION, now: at });
     assert.ok(r.ok);
     const ro = await openReadOnly(fx.path);
     const markers = readMarkers(ro.db);
@@ -326,10 +336,10 @@ test("declared markers appear alongside switches, in time order, with provenance
 });
 
 test("every failure to save says 'Not saved'", { skip: !sqlite }, async () => {
-  const bad = await markChange({ ...VALID, developerApproved: false }, { dbPath: "/nonexistent/x.db", client: CLIENT });
+  const bad = await markChange({ ...VALID, developerApproved: false }, { dbPath: "/nonexistent/x.db", client: CLIENT, observed: NO_OBSERVATION });
   assert.equal(bad.ok, false);
   if (!bad.ok) assert.match(bad.error, /^Not saved\./);
-  const absent = await markChange(VALID, { dbPath: "/nonexistent/x.db", client: CLIENT });
+  const absent = await markChange(VALID, { dbPath: "/nonexistent/x.db", client: CLIENT, observed: NO_OBSERVATION });
   assert.equal(absent.ok, false);
   if (!absent.ok) assert.match(absent.error, /^Not saved\./);
 });
@@ -339,7 +349,7 @@ test("a marker on a signal Modelog cannot measure yet is saved, and says so", { 
   try {
     const r = await markChange(
       { signal: "unsupervised-run", target: 30, provenance: { signal: "user", target: "user" }, developerApproved: true },
-      { dbPath: fx.path, client: CLIENT, now: NOW },
+      { dbPath: fx.path, client: CLIENT, observed: NO_OBSERVATION, now: NOW },
     );
     assert.ok(r.ok);
     if (r.ok) {

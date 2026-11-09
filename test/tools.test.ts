@@ -19,7 +19,7 @@ import { openReadOnly, readTurns } from "../src/mcp/readOnlyStore.ts";
 import { SCHEMA_VERSION } from "../src/store/store.ts";
 import type { BillingInfo } from "../src/ingest/billing.ts";
 import type { Turn } from "../src/ingest/types.ts";
-import { FIXTURE_TURNS, makeStore, sqlite, BASE_TS, turn } from "./fixture.ts";
+import { FIXTURE_TURNS, makeStore, sqlite, BASE_TS, turn, NO_OBSERVATION } from "./fixture.ts";
 import { isCaptured, uncapturedFields } from "../src/ingest/capture.ts";
 
 const API_BILLING: BillingInfo = { mode: "api", detected: true, rawType: "prepaid" };
@@ -35,6 +35,8 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     note: null,
     turns: FIXTURE_TURNS,
     markers: [],
+    workRecords: [],
+    observed: NO_OBSERVATION,
     pricing: PRICING,
     table: RATE_TABLE,
     billing: API_BILLING,
@@ -519,7 +521,7 @@ test("an unknown tool name is an error, not an empty envelope", () => {
 // --- the tools/list surface ------------------------------------------------------------
 
 test("every tool is declared with a name, a description and an object schema", () => {
-  assert.equal(TOOLS.length, 6);
+  assert.equal(TOOLS.length, 8);
   for (const t of TOOLS) {
     assert.match(t.name, /^modelog_/);
     assert.ok(t.description.length > 80, `${t.name} needs a real description`);
@@ -537,9 +539,10 @@ test("declared read tool names match what the read dispatcher accepts", () => {
 
 test("the write surface is exactly the append tools — nothing else writes", () => {
   // PRD invariant 6, rewritten 2026-11-08; replaces "no tool is a write
-  // tool". Pinned by NAME, so adding any write tool — including stage (b)'s
-  // closure append — fails here until this list is changed on purpose.
-  assert.deepEqual([...WRITE_TOOL_NAMES], ["modelog_mark_change"]);
+  // tool". Pinned by NAME, so adding any write tool fails here until this
+  // list is changed on purpose. Changed on purpose 2026-11-09 for the
+  // work-session append (PRD §7.25): markers and work records, nothing else.
+  assert.deepEqual([...WRITE_TOOL_NAMES], ["modelog_mark_change", "modelog_save_work_record"]);
   for (const name of WRITE_TOOL_NAMES) {
     assert.match(name, /^modelog_(mark|save)_/, `${name} must be named as an append`);
     assert.doesNotMatch(name, /update|delete|edit|remove|set|clear|drop/, name);

@@ -1,5 +1,6 @@
 import type { Turn, FileCursor } from "../ingest/types.ts";
 import type { DeclaredMarker } from "../markers/vocabulary.ts";
+import type { WorkRecord } from "../workSessions/records.ts";
 
 /**
  * Bumped whenever the persisted shape of the store changes. Both backends key
@@ -8,8 +9,12 @@ import type { DeclaredMarker } from "../markers/vocabulary.ts";
  *
  * 7 (2026-11-08): the `markers` table — developer-declared markers, appended
  * by the MCP server. Unlike turns, these are NOT rebuildable from any log.
+ *
+ * 8 (2026-11-09): the `work_records` table (PRD §7.25: start, continue,
+ * handoff, done) and a `meta` table holding this install's origin id. Also
+ * not rebuildable.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 /**
  * The storage contract. Deliberately narrow: nothing above this interface
@@ -26,6 +31,11 @@ export interface Store {
    * store, which the MCP server cannot reach.
    */
   allMarkers(): readonly DeclaredMarker[];
+  /**
+   * Work-session records (PRD §7.25), oldest first. Appended only by the MCP
+   * server; always empty on the file store, for the same reason as markers.
+   */
+  allWorkRecords(): readonly WorkRecord[];
   turnCount(): number;
   getCursor(path: string): FileCursor | undefined;
   setCursor(c: FileCursor): void;
@@ -36,7 +46,7 @@ export interface Store {
    * the developer's hands and nowhere else. Returns false if no such marker.
    */
   removeMarker(id: string): boolean;
-  /** Wipes the rebuildable cache (turns, cursors). Never touches markers. */
+  /** Wipes the rebuildable cache (turns, cursors). Never touches markers or work records. */
   clear(): void;
   close(): void;
 }
