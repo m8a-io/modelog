@@ -1,6 +1,6 @@
 # Next Session — the recommendation loop (PRD §7.23 / §7.24)
 
-**Status:** specification written 2026-11-07; **step 1 complete 2026-11-07** (`RESEARCH-signals.md`); **stage 0 complete and design revised 2026-11-08** (see *Redesign* below). **Still no code.** Nothing in §7.23 or §7.24 is implemented, scoped, or estimated.
+**Status (2026-11-10): `/start`, `/handoff` and `/done` shipped in 0.9.0 — read "Where the last session left off" first.** Earlier: specification written 2026-11-07; **step 1 complete 2026-11-07** (`RESEARCH-signals.md`); **stage 0 complete and design revised 2026-11-08** (see *Redesign* below). *(As of 2026-11-08: still no code. Superseded: §7.24's commands and the work-session records are built; §7.23's recommendation loop and scoring are not.)*
 
 **Spec:** `PRD.md` §7.23 (the loop), §7.24 (shipping the commands), §7.22 (the closure record this builds on), §7.19 (the authorship rule). Where this document and the PRD disagree, **the PRD wins** — this is sequencing and session context, not requirements.
 
@@ -8,7 +8,29 @@
 
 ---
 
-## Where the last session left off
+## Where the last session left off — 0.9.0 published, 2026-11-10
+
+**0.9.0 ("Work sessions") is on the Marketplace**, published by the maintainer from `main` at `eb41751` (PR #31). It shipped `/start`, `/handoff` and `/done` (installed by Enable MCP Server), schema 8 with `work_records`, two MCP tools, and the Dashboard tabs (W10) with a records-only Work sessions list. Everything below this block is older context; the "NEXT SESSION — build `/done`" heading is history, since it is built.
+
+**Only `/done` was tested live before release** (maintainer's choice, short on time). The maintainer is testing 0.9.0 on a MacBook in Claude Code during the week of 2026-11-10 and reports back the following weekend. **Start the next session by asking for that report.** Until then, treat as unverified: the Enable/Disable dialogs and View Skill Files, the Update Skills notification, a populated Work sessions tab, and everything in Codex and Copilot.
+
+**On this WSL machine:** the dev test setup is gone (`.mcp.json` restored to the real store; the `.claude/skills/` copies removed). `~/.claude/skills/` does not exist yet, so `/start` is unavailable here until 0.9.0 is installed and **Modelog: Enable MCP Server (Claude Code)** is run, which is itself a test of the installer.
+
+**Open items from the work session's `/done`** (2026-11-10, rated by the maintainer; recorded only in a scratch store, so copied here):
+
+1. Maintainer's report from testing 0.9.0 on macOS: Enable/Disable dialogs, View Skill Files, Update Skills notice, a populated Work sessions tab.
+2. Decide the tool for Codex/Copilot records: MCP `clientInfo`, or work sessions for Claude Code only (0.9.0 ships the latter in effect; their records carry no tool or chat id).
+3. Later work session: Codex and Copilot testing of skill install and removal (see "Planned, deferred" below).
+4. Later release: the read-time chat link (§7.25), then per-work-session cost, turns, active time and context peaks on the Work sessions tab.
+5. W7: the open-work-session notice, with a deep link to the Work sessions tab.
+6. Still open in §7.25: showing the chat title (invariant 1); opening a chat from the Dashboard.
+7. 0.10.0: uninstall keeps the developer's records ("Uninstalling Modelog" below). 0.9.0's README and CHANGELOG say uninstall deletes them.
+8. Tag `v0.9.0` on `eb41751` if not yet pushed.
+
+---
+
+## Where an earlier session left off (2026-11-07)
+
 
 A long design conversation on 2026-11-06/07 that produced **documentation only**. All changes are in `docs/PRD.md` and were **uncommitted** at the time of writing:
 
