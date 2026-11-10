@@ -34,6 +34,7 @@ import type {
   DelegationSliceView,
   MarkedChangeView,
 } from "./ui/protocol.ts";
+import { workSessionRows } from "./workSessions/dashboard.ts";
 import { signalDef, type DeclaredMarker } from "./markers/vocabulary.ts";
 import {
   detectBilling,
@@ -339,6 +340,7 @@ export class ModelogService {
       chart,
       switches,
       markedChanges: [...this.store.allMarkers()].reverse().map(markedChangeView),
+      workSessions: workSessionRows(this.store.allWorkRecords(), now),
       warnings: [...this.warnings],
     };
   }

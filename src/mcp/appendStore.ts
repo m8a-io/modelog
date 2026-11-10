@@ -3,6 +3,10 @@ import { existsSync } from "node:fs";
 import { SCHEMA_VERSION } from "../store/store.ts";
 import { INSERT_MARKER_SQL, markerParams, rowToMarker } from "../store/markerRows.ts";
 import { VOCABULARY_VERSION, signalDef, type DeclaredMarker, type MarkerInput } from "../markers/vocabulary.ts";
+import { INSERT_WORK_RECORD_SQL, readOriginId, readWorkRecords, workRecordParams } from "../store/workRecordRows.ts";
+import type { WorkRecord } from "../workSessions/records.ts";
+import type { WorkRecordInput } from "../workSessions/validate.ts";
+import { resolveAppend, type Observed } from "../workSessions/resolve.ts";
 
 /**
  * The MCP server's ONLY write path (PRD invariant 6, MCP.md §4.1).
@@ -27,8 +31,8 @@ import { VOCABULARY_VERSION, signalDef, type DeclaredMarker, type MarkerInput } 
  * writer lock longer than one INSERT.
  */
 
-/** The tables an append connection may INSERT into. Stage (b) adds `closures`. */
-export const APPEND_TABLES: readonly string[] = ["markers"];
+/** The tables an append connection may INSERT into (invariant 6). */
+export const APPEND_TABLES: readonly string[] = ["markers", "work_records"];
 
 export type AppendStatus = "ok" | "no-data" | "schema-mismatch" | "unsupported";
 
@@ -163,6 +167,64 @@ export async function appendMarker(
     };
     db.prepare(INSERT_MARKER_SQL).run(...markerParams(marker));
     return { status: "ok", marker, duplicateOf: null };
+  } finally {
+    db.close();
+  }
+}
+
+export type AppendWorkResult =
+  | { status: "ok"; record: WorkRecord; duplicate: boolean; records: readonly WorkRecord[] }
+  | { status: "refused"; note: string }
+  | { status: Exclude<AppendStatus, "ok">; note: string };
+
+/**
+ * Append one work-session record (PRD §7.25). The decision of which work
+ * session it joins is `resolveAppend`'s, made inside one write transaction
+ * over the records as they stand, so two chats racing for one handoff are
+ * serialised here, and the unique index on `continues_from` refuses whichever
+ * loses if they are not. The server's clock stamps the record.
+ */
+export async function appendWorkRecord(
+  dbPath: string | undefined,
+  input: WorkRecordInput,
+  observed: Observed,
+  client: { name: string | null; version: string | null },
+  now: number = Date.now(),
+): Promise<AppendWorkResult> {
+  const opened = await openAppend(dbPath);
+  if (opened.status !== "ok") return opened;
+  const db = opened.db;
+  try {
+    // IMMEDIATE takes the write lock before reading, so the records the
+    // decision is based on cannot change before the INSERT.
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = readWorkRecords(db);
+      const res = resolveAppend(existing, input, observed, {
+        id: randomUUID(),
+        originId: readOriginId(db),
+        clientName: client.name,
+        clientVersion: client.version,
+        now,
+      });
+      if (res.kind === "refuse") {
+        db.exec("ROLLBACK");
+        return { status: "refused", note: res.reason };
+      }
+      if (res.kind === "duplicate") {
+        db.exec("ROLLBACK");
+        return { status: "ok", record: res.record, duplicate: true, records: existing };
+      }
+      db.prepare(INSERT_WORK_RECORD_SQL).run(...workRecordParams(res.record));
+      db.exec("COMMIT");
+      return { status: "ok", record: res.record, duplicate: false, records: [...existing, res.record] };
+    } catch (e) {
+      if (db.isTransaction) db.exec("ROLLBACK");
+      if (e instanceof Error && /UNIQUE constraint failed: work_records\.continues_from/.test(e.message)) {
+        return { status: "refused", note: "Another chat has already continued that handoff." };
+      }
+      throw e;
+    }
   } finally {
     db.close();
   }

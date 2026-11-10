@@ -133,6 +133,10 @@ Command: **`Modelog: Enable MCP Server`**
 
 Command: **`Modelog: Disable MCP Server`** removes only the `modelog` entry, leaving the rest of the file untouched.
 
+> **Extended 2026-11-09 (0.9.0): Enable also installs the `/start`, `/handoff` and `/done` skills** (PRD §7.25), in the same confirmation: `~/.claude/skills/<name>/SKILL.md` for Claude Code, `~/.agents/skills/<name>/SKILL.md` for Codex, the Copilot CLI and Copilot Chat. The dialog lists each file and what writing it does (new, unchanged, replaces Modelog's earlier or edited copy, or sets aside a `SKILL.md` that isn't Modelog's), and its *View Skill Files* button opens the exact content. A `SKILL.md` that isn't Modelog's is moved to `~/.modelog/backups/skills/<claude|agents>/<name>/SKILL.md` and put back on removal. If that backup path is already taken, nothing is installed. Each file is read back against its SHA-256, which is recorded with its path in `~/.modelog/uninstall.json` (`src/cleanup/skills.ts`).
+>
+> **Disable removes a root's skills only when no registration still uses it** (maintainer, 2026-11-09). The check reads where each registration lives: other projects' `modelog` entries in `~/.claude.json`, the Codex and Copilot CLI configs, and a footprint flag for Copilot Chat, which has no config. The dialog names whatever keeps them. Copilot Chat's Disable has a *Remove Skills* button that drops that flag. Uninstall and *Remove Modelog's Changes* remove every skill in both roots, edited or not, as one recommended item.
+
 ### 7.4 Which clients
 
 v1 keeps the blast radius small:
@@ -263,11 +267,24 @@ Every tool returns a common envelope:
 - **Removal is the Dashboard's, by the developer** (invariant 6). The tool description says so, because the stage-a client test showed an agent with no delete tool offering to run a raw SQL `DELETE` against the store instead. The Dashboard's **Remove** asks for confirmation in a native modal that restates the marker from the store, then deletes the row. An agent delete tool was considered and rejected on 2026-11-08: the server cannot verify approval, and a wrong append can be undone in the Dashboard while a wrong delete destroys data that no log can rebuild.
 - **Every failure begins "Not saved."** and is an error result, so an agent cannot report a save that did not happen.
 
-**How the write stays narrow** (`src/mcp/appendStore.ts`): a separate connection per call — reads stay `readOnly: true` — with an SQLite **authorizer** that permits INSERT into `markers` and nothing else that writes (no UPDATE, DELETE, DDL, PRAGMA or ATTACH; no touch of `turns` or `cursors`). Where the host Node lacks `setAuthorizer` the tool refuses rather than write unguarded — verified present on Node 24.21 and on the VS Code server's 24.22.1; a native VS Code host's bundled Node is `[untested]`. It refuses any store whose schema version is not exactly its own, and never creates a store. `test/tools.test.ts` pins the write surface **by name**, so stage b's closure tool has to change that test on purpose.
+**How the write stays narrow** (`src/mcp/appendStore.ts`): a separate connection per call — reads stay `readOnly: true` — with an SQLite **authorizer** that permits INSERT into `markers` and nothing else that writes (no UPDATE, DELETE, DDL, PRAGMA or ATTACH; no touch of `turns` or `cursors`). Where the host Node lacks `setAuthorizer` the tool refuses rather than write unguarded — verified present on Node 24.21 and on the VS Code server's 24.22.1; a native VS Code host's bundled Node is `[untested]`. It refuses any store whose schema version is not exactly its own, and never creates a store. `test/tools.test.ts` pins the write surface **by name**, so stage b's closure tool has to change that test on purpose. *Changed on purpose 2026-11-09 for §8.9.*
 
 **Markers are the first rows in the store that cannot be rebuilt** from any log. `clear()` and every turn migration leave the `markers` table alone, and a test holds that.
 
 ---
+
+### 8.9 `modelog_save_work_record` and `modelog_get_work_sessions` — work sessions *(0.9.0, 2026-11-09)*
+
+The second append tool and its read, for the `/start`, `/handoff` and `/done` skills (PRD §7.25). One table, `work_records`, holds four kinds: `start`, `continue` (a new chat claiming a waiting handoff), `handoff` (brief and open items, no rating) and `done` (required 1–10 rating, summary, open items).
+
+- **The calling chat is observed, never supplied.** Claude Code starts one MCP server per chat with `CLAUDE_CODE_SESSION_ID` in its environment; the server records it, its own working directory, and the tool (`claude-code` only when that variable is present, otherwise unknown). Without a chat id, `current` is always empty and the skills ask the developer instead; a note says so.
+- **Membership is decided at save time from the records alone** (`src/workSessions/resolve.ts`, pure), inside one `BEGIN IMMEDIATE` transaction: a `continuesFrom` joins that handoff's work session; otherwise the chat's own latest open work session; otherwise a new one, marked `startedImplicitly` unless the record is a `start`.
+- **A handoff is continued once**, by a partial unique index on `continues_from`, and never by the chat that wrote it, from another tool, or after its work session is closed. Each refusal is a "Not saved." error.
+- **The database restates the per-kind rules** as CHECK constraints: only `done` is rated and must be, only `handoff` has a brief, and so on.
+- **Every record carries an `origin_id`** from the store's `meta` table, which the extension creates; the append connection can read it and cannot write it.
+- **The brief is returned as a typed field only** (`continued.brief`, `earlierHandoffs[].brief`), never in notes or instructions: a documented, narrow exception to §4.2, since it exists to guide the next chat. A test injects an imperative brief and checks that no note carries it.
+- **Skills from an older release must keep working** (maintainer, 2026-11-10). Installed skills are never rewritten without the developer's confirmation, so after an update an old `SKILL.md` can run against the new server. A tool change may therefore never break the calls an earlier skill makes. Add optional fields, never require new ones or rename or remove existing ones. A skill change is never essential to a release. On activation, Modelog compares the recorded hash of what it installed with the shipped bundle. Once per release whose bundle differs, a notification offers **Update Skills**, which shows Enable's own confirmation (`notifyOutdatedSkills`, `src/ui/skills.ts`). A developer's own edit does not trigger it.
+- **Context cost, measured:** 10,088 characters for all eight definitions plus instructions, up from 7,959 (`PLAN-recommendations.md` question 6).
 
 ## 9. Failure Modes
 

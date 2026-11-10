@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, rmdirSync } from "node:fs";
 import { join } from "node:path";
+import { writeFileAtomically } from "../mcp/claudeConfigFile.ts";
 
 /**
  * The one piece of state the uninstall hook cannot work out for itself.
@@ -35,10 +36,36 @@ export interface CopilotLoggingRecord {
   settingsFile: string | null;
 }
 
+/** Which of the two skill roots a skill file was installed into (`skills.ts`). */
+export type SkillTarget = "claude" | "agents";
+
+/**
+ * One `SKILL.md` Modelog wrote, recorded so the uninstall hook can remove it
+ * without the extension (PRD §7.15). The hash is what Modelog wrote: a file
+ * that no longer matches was edited, which is logged and then removed anyway.
+ */
+export interface SkillRecord {
+  target: SkillTarget;
+  name: string;
+  path: string;
+  sha256: string;
+  /** The developer's own `SKILL.md` that was at `path` before install, saved here and restored on removal. */
+  backup?: string;
+}
+
 export interface Footprint {
   version: 1;
   /** Present only while Modelog is the reason Copilot's debug logging is on. */
   copilotLogging?: CopilotLoggingRecord;
+  /** Modelog's installed `/start`, `/handoff` and `/done` skills, in both roots. */
+  skills?: SkillRecord[];
+  /**
+   * Copilot Chat's claim on `~/.agents/skills`. Codex and the Copilot CLI have
+   * a config entry that says they are enabled; Copilot Chat has none (MCP.md
+   * §7.4), so without this flag disabling Codex could not tell that Copilot
+   * Chat still uses the skills.
+   */
+  copilotChatSkills?: true;
 }
 
 export function footprintDir(home: string): string {
@@ -60,9 +87,31 @@ export function readFootprint(path: string): Footprint | null {
   }
 }
 
+/**
+ * Atomic, because the uninstall hook may read this file while a window is
+ * writing it, and a half-written footprint reads as "nothing recorded".
+ */
 export function writeFootprint(path: string, footprint: Footprint): void {
   mkdirSync(join(path, ".."), { recursive: true });
-  writeFileSync(path, JSON.stringify(footprint, null, 2) + "\n");
+  writeFileAtomically(path, JSON.stringify(footprint, null, 2) + "\n");
+}
+
+/**
+ * Read, change, write — and remove the file once no field is left.
+ *
+ * Every field is cleared through here, so clearing one can never drop
+ * another. (Until 0.9.0 clearing Copilot logging deleted the whole file,
+ * which was harmless only while that was the file's one field.)
+ */
+export function updateFootprint(path: string, change: (current: Footprint) => Footprint): void {
+  const next = change(readFootprint(path) ?? { version: 1 });
+  if (next.skills?.length === 0) delete next.skills;
+  for (const key of Object.keys(next) as (keyof Footprint)[]) {
+    if (next[key] === undefined) delete next[key];
+  }
+
+  if (Object.keys(next).every((key) => key === "version")) removeFootprint(path);
+  else writeFootprint(path, next);
 }
 
 /**
@@ -76,16 +125,12 @@ export function recordCopilotLogging(
   path: string,
   record: CopilotLoggingRecord | undefined,
 ): void {
-  const current = readFootprint(path) ?? { version: 1 as const };
-  const next: Footprint = { ...current, copilotLogging: record };
-  if (record === undefined) delete next.copilotLogging;
-
-  if (next.copilotLogging === undefined) removeFootprint(path);
-  else writeFootprint(path, next);
+  updateFootprint(path, (current) => ({ ...current, copilotLogging: record }));
 }
 
 /**
- * Removes the file, then the directory — but only if the directory is empty.
+ * Removes the file, then the directory, but only if the directory is empty
+ * (it also holds `backups/` while a developer's own skill is set aside).
  *
  * `rmdirSync` rather than `rmSync({ recursive: true })` deliberately: it
  * throws `ENOTEMPTY` instead of deleting whatever else is in there. `~/.modelog`

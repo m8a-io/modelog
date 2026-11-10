@@ -35,6 +35,19 @@ A plain grep for the string finds only the manifest JSON schema, because the key
 
 **Consequence for design.** A deinstallation *wizard* is not expressible, for the same reason §1's install-time behaviour is not: there is no UI surface. Consent has to be collected earlier, by an ordinary command, with the hook as the unattended fallback for a user who simply clicks Uninstall. That is the split Modelog implements — `Modelog: Remove Modelog's Changes` does the asking, `src/uninstall.ts` runs the restorative subset of the same plan (`src/cleanup/plan.ts`) silently.
 
+**Re-verified 2026-11-08 against VS Code Server 1.144.0** (commit `2c33b50`, `out/server-main.js`, Remote-WSL). Everything above still holds. Added:
+
+| Finding | Status |
+| :--- | :--- |
+| The storage `rm` sits in its **own `try` after the hook's**, so it runs even when the hook failed or was killed at 5 s. Nothing the hook leaves unfinished is saved | **[verified]**, code |
+| The path removed is `defaultProfile.globalStorageHome/<id, lower-cased>`. Whether a store opened under a non-default profile lives elsewhere | Path **[verified]**, code; profile case **[untested]** |
+| Trigger: the extension scanner's `cleanUp()` → `deleteExtensionsMarkedForRemoval()`, at extension-management startup. The hook is skipped while **any other version** of the extension is still installed, so an update never runs it | **[verified]**, code |
+| In a remote window, `postUninstall` lives in the **server** bundle: the hook, the `rm` and the store (`~/.vscode-server/data/User/globalStorage/modelog.modelog/`) are all on the remote side, and the hook's `homedir()` is the remote home | **[verified]**, code and paths |
+| "The restart after the uninstall" is therefore the next start of the **remote server**, which a window reload may not cause | **[untested]**, inferred from code |
+| The hook is forked with the server's own Node (24.22.1 here), which has `node:sqlite` and opens `modelog.db` read-only | **[verified]** |
+| **The hook has never been observed running on this machine.** No server log since 2026-10-07 contains `Running post uninstall script`. Every claim in this section comes from reading code | Gap. Closed by stage U0 of `PLAN-recommendations.md`'s uninstall plan |
+| One machine can hold independent installs: here, Windows-side VS Code also has Modelog with its own `modelog.db`. Each side uninstalls on its own | **[verified]** |
+
 Measured on the development machine: the full hook run takes ~1.4 s of the 5 s budget. An earlier version took 2.4 s because it probed each assistant by spawning its CLI (`copilot` alone costs ~417 ms per invocation); the probes now read the config files instead, and only the removal itself spawns.
 
 ---

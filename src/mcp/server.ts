@@ -9,6 +9,9 @@ import { openReadOnly, readTurns } from "./readOnlyStore.ts";
 import { PRICING, RATE_TABLE } from "./rates.ts";
 import { callTool, callWriteTool, TOOLS, WRITE_TOOL_NAMES, type ToolContext, type ToolResult } from "./tools.ts";
 import { readMarkers } from "../store/markerRows.ts";
+import { readWorkRecords } from "../store/workRecordRows.ts";
+import type { WorkRecord } from "../workSessions/records.ts";
+import { observeIdentity } from "../workSessions/resolve.ts";
 import type { DeclaredMarker } from "../markers/vocabulary.ts";
 import { detectBilling, type BillingInfo } from "../ingest/billing.ts";
 import type { Turn } from "../ingest/types.ts";
@@ -71,10 +74,12 @@ export async function buildContext(now: number = Date.now()): Promise<ToolContex
 
   let turns: readonly Turn[] = [];
   let markers: readonly DeclaredMarker[] = [];
+  let workRecords: readonly WorkRecord[] = [];
   if (opened.status === "ok") {
     try {
       turns = readTurns(opened.db);
       markers = readMarkers(opened.db);
+      workRecords = readWorkRecords(opened.db);
     } finally {
       opened.db.close();
     }
@@ -85,6 +90,8 @@ export async function buildContext(now: number = Date.now()): Promise<ToolContex
     note: opened.note,
     turns,
     markers,
+    workRecords,
+    observed: observeIdentity(process.env, process.cwd()),
     pricing: PRICING,
     table: RATE_TABLE,
     billing,
@@ -104,8 +111,8 @@ export function createServer(): Server {
       instructions:
         "Modelog exposes metrics derived from your own local AI coding-assistant " +
         "session logs. It holds no prompts or code. Every tool only reads, except " +
-        "modelog_mark_change, which appends one developer-approved record; nothing " +
-        "can be edited or deleted through Modelog. Several metrics have semantics " +
+        "modelog_mark_change and modelog_save_work_record, which each append one " +
+        "developer-approved record; nothing can be edited or deleted through Modelog. Several metrics have semantics " +
         "their names do not convey, so modelog_get_definitions describes them and " +
         "is worth reading before interpreting the other tools' numbers.",
     },
@@ -131,6 +138,7 @@ export function createServer(): Server {
         result = await callWriteTool(name, args, {
           dbPath: process.env.MODELOG_DB,
           client: { name: client?.name ?? null, version: client?.version ?? null },
+          observed: observeIdentity(process.env, process.cwd()),
         });
       } else {
         result = callTool(name, args, await buildContext());

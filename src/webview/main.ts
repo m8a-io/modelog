@@ -34,47 +34,145 @@ let activeSource = "";
 /** The live charts, disposed before each re-render so ECharts frees their DOM. */
 let charts: ChartHandle[] = [];
 
+/**
+ * The Dashboard's sections (PRD §7.25 W10). Switching tabs is local: the host
+ * sends every section's view model in one state, so nothing is recomputed.
+ */
+type Tab = "home" | "delegation" | "switches" | "work";
+let activeTab: Tab = "home";
+let lastState: ViewState | null = null;
+
 function render(state: ViewState): void {
   for (const c of charts) c.dispose();
   charts = [];
+  lastState = state;
   activeSource = state.activeSource;
   app.replaceChildren();
   app.append(header(state));
-  if (state.sources.length > 1) app.append(sourceTabs(state));
+  app.append(tabBar(state));
 
   for (const w of state.warnings) app.append(banner(w, "warn"));
 
-  if (state.empty) {
-    app.append(el("p", `No ${sourceLabel(state)} sessions in this range.`, "muted"));
+  if (activeTab === "work") {
+    app.append(workSessionList(state));
     return;
   }
 
-  app.append(summary(state));
-
-  if (state.chart.days.length > 0) {
-    app.append(el("h2", "Cost and turns per day"));
-    mountChart(state.chart);
+  if (state.empty) {
+    app.append(el("p", `No ${sourceLabel(state)} sessions in this range.`, "muted"));
+    if (activeTab === "home" && state.markedChanges.length) appendMarkedChanges(state);
+    return;
   }
 
-  app.append(el("h2", "Delegation"));
-  app.append(delegationBlock(state.delegation));
-  if (state.delegation.chart && state.delegation.chart.days.length > 0) {
-    app.append(el("h2", "Delegation per day"));
-    mountChart(state.delegation.chart);
+  switch (activeTab) {
+    case "home":
+      app.append(summary(state));
+      if (state.chart.days.length > 0) {
+        app.append(el("h2", "Cost and turns per day"));
+        mountChart(state.chart);
+      }
+      app.append(el("h2", "Model comparison"));
+      app.append(comparisonTable(state.rows));
+      if (state.markedChanges.length) appendMarkedChanges(state);
+      return;
+    case "delegation":
+      app.append(el("h2", "Delegation"));
+      app.append(delegationBlock(state.delegation));
+      if (state.delegation.chart && state.delegation.chart.days.length > 0) {
+        app.append(el("h2", "Delegation per day"));
+        mountChart(state.delegation.chart);
+      }
+      return;
+    case "switches":
+      if (state.switches.length) {
+        app.append(el("h2", `Model switches (${state.switches.length})`));
+        app.append(switchList(state));
+      } else {
+        app.append(el("p", "No model switches in this range.", "muted"));
+      }
+      return;
   }
+}
 
-  app.append(el("h2", "Model comparison"));
-  app.append(comparisonTable(state.rows));
+function appendMarkedChanges(state: ViewState): void {
+  app.append(el("h2", `Marked changes (${state.markedChanges.length})`));
+  app.append(markedChangeList(state));
+}
 
-  if (state.switches.length) {
-    app.append(el("h2", `Model switches (${state.switches.length})`));
-    app.append(switchList(state));
+/** Section tabs. A count badge only where it says something at a glance. */
+function tabBar(state: ViewState): HTMLElement {
+  const tabs: Array<[Tab, string, number | null]> = [
+    ["home", "Home", null],
+    ["delegation", "Delegation", null],
+    ["switches", "Model switches", state.switches.length],
+    ["work", "Work sessions", state.workSessions.length],
+  ];
+  const wrap = el("div", "", "tabs");
+  wrap.setAttribute("role", "tablist");
+  for (const [id, label, count] of tabs) {
+    const on = id === activeTab;
+    const b = el("button", "", on ? "tab active" : "tab");
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(on));
+    b.append(el("span", label, "tab-label"));
+    if (count) b.append(el("span", String(count), "tab-count"));
+    b.addEventListener("click", () => {
+      if (id === activeTab || !lastState) return;
+      activeTab = id;
+      render(lastState);
+    });
+    wrap.append(b);
   }
+  return wrap;
+}
 
-  if (state.markedChanges.length) {
-    app.append(el("h2", `Marked changes (${state.markedChanges.length})`));
-    app.append(markedChangeList(state));
+/**
+ * Work sessions (PRD §7.25), newest first, from their records alone. The
+ * summary and open items are developer-approved text, set as text only.
+ */
+function workSessionList(state: ViewState): HTMLElement {
+  const wrap = el("div", "", "work-sessions");
+  wrap.append(
+    el(
+      "p",
+      "A work session is your stretch of work: one or more chats joined by /handoff, " +
+        "closed by /done. All tools, all time. Cost and active time per work session " +
+        "are not measured yet.",
+      "muted small",
+    ),
+  );
+  if (state.workSessions.length === 0) {
+    wrap.append(
+      el("p", "No work sessions yet. Run /start in a chat to begin one, and /done to close it.", "muted"),
+    );
+    return wrap;
   }
+  const ul = el("ul", "", "switches");
+  for (const w of state.workSessions) {
+    const li = el("li");
+    li.append(el("span", w.started, "when"), el("span", w.status, `pill status-${w.status}`));
+    const parts = [
+      `${w.chats} chat${w.chats === 1 ? "" : "s"}`,
+      `${w.handoffs} handoff${w.handoffs === 1 ? "" : "s"}`,
+    ];
+    if (w.rating) parts.push(`rated ${w.rating}`);
+    li.append(el("span", parts.join(" · "), "label"));
+    li.append(el("span", w.timing, "when"));
+    if (w.closedLate) li.append(el("span", "closed late", "pill"));
+    if (w.startedImplicitly) li.append(el("span", "started without /start", "pill"));
+    li.append(el("span", w.tool, "pill"));
+    if (w.summary) li.append(el("div", w.summary, "statement"));
+    if (w.openItemsHeading) {
+      li.append(el("div", w.openItemsHeading, "provenance"));
+      const items = el("ul", "", "open-items");
+      for (const item of w.openItems) items.append(el("li", item));
+      li.append(items);
+    }
+    if (w.provenanceNote) li.append(el("div", w.provenanceNote, "provenance"));
+    ul.append(li);
+  }
+  wrap.append(ul);
+  return wrap;
 }
 
 function mountChart(data: ChartData): void {
@@ -176,30 +274,28 @@ function shareBars(d: DelegationView): HTMLElement {
 }
 
 /**
- * One tab per ingested assistant.
- *
- * Shown only when more than one has data: with a single source the control
- * would be a permanent no-op. Each tab is a whole dashboard in that source's
- * own unit rather than a filter over a combined one, because a dollar total
- * and a credit total cannot be summed or share an axis.
+ * The assistant whose figures are shown, as a dropdown (W10). Shown only when
+ * more than one has data. Each choice is a whole dashboard in that source's own
+ * unit rather than a filter over a combined one, because a dollar total and a
+ * credit total cannot be summed or share an axis.
  */
-function sourceTabs(state: ViewState): HTMLElement {
-  const wrap = el("div", "", "sources");
-  wrap.setAttribute("role", "tablist");
+function sourcePicker(state: ViewState): HTMLElement {
+  const select = document.createElement("select");
+  select.className = "source-picker";
+  select.setAttribute("aria-label", "Agent tool");
   for (const s of state.sources) {
-    const on = s.id === state.activeSource;
-    const b = el("button", "", on ? "source active" : "source");
-    b.setAttribute("role", "tab");
-    b.setAttribute("aria-selected", String(on));
-    b.append(el("span", s.label, "source-label"), el("span", String(s.turns), "source-count"));
-    b.addEventListener("click", () => {
-      if (s.id === activeSource) return;
-      activeSource = s.id;
-      vscode.postMessage({ type: "setSource", source: s.id });
-    });
-    wrap.append(b);
+    const o = document.createElement("option");
+    o.value = s.id;
+    o.textContent = `${s.label} (${s.turns} turns)`;
+    o.selected = s.id === state.activeSource;
+    select.append(o);
   }
-  return wrap;
+  select.addEventListener("change", () => {
+    if (select.value === activeSource) return;
+    activeSource = select.value;
+    vscode.postMessage({ type: "setSource", source: select.value });
+  });
+  return select;
 }
 
 function sourceLabel(state: ViewState): string {
@@ -210,17 +306,23 @@ function header(state: ViewState): HTMLElement {
   const bar = el("div", "", "header");
 
   const title = el("div", "", "title");
-  title.append(el("h1", "Modelog"), billingTag(state));
+  title.append(el("h1", "Modelog"));
+  if (activeTab !== "work") title.append(billingTag(state));
   bar.append(title);
 
   const controls = el("div", "", "controls");
-  for (const [label, days] of RANGES) {
-    const b = el("button", label, days === activeRange ? "active" : "");
-    b.addEventListener("click", () => {
-      activeRange = days;
-      vscode.postMessage({ type: "setRange", days });
-    });
-    controls.append(b);
+  // The tool and the range choose measured figures. Work sessions are listed
+  // from every tool and all time, so on that tab the controls would do nothing.
+  if (activeTab !== "work") {
+    if (state.sources.length > 1) controls.append(sourcePicker(state));
+    for (const [label, days] of RANGES) {
+      const b = el("button", label, days === activeRange ? "active" : "");
+      b.addEventListener("click", () => {
+        activeRange = days;
+        vscode.postMessage({ type: "setRange", days });
+      });
+      controls.append(b);
+    }
   }
   const rescan = el("button", "Rescan", "ghost");
   rescan.addEventListener("click", () => vscode.postMessage({ type: "rescan" }));

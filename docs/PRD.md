@@ -140,7 +140,8 @@ Not every comparison Modelog *could* render is one it *may* render. Comparabilit
 
 ## 6. Core Data Model
 
-- **Session** — an IDE chat/agent session: id, start/end timestamp, model(s) used, repo/branch, duration.
+- **Session** — an IDE chat/agent session: id, start/end timestamp, model(s) used, repo/branch, duration. **Called a *chat session* from 2026-11-09**, to tell it apart from a work session. It is one conversation log, and it is what every measured figure in Modelog is keyed by. Wherever this document says "session" without a qualifier, it means a chat session.
+- **Work session** *(added 2026-11-09, §7.25)* — the developer's stretch of work. It spans one or more chat sessions joined by `/handoff`, in one tool and one workspace, and `/done` closes it. Modelog does not infer it; it exists only through the records the developer's commands write.
 - **Turn** — one exchange within a session: timestamp, model, input/output/cached tokens, cost (measured or derived — see §8.2).
 - **Marker** — a point-in-time event that can anchor a comparison. Carries an explicit `provenance` field:
   - `observed` — a fact read directly from the logs (model switch, instruction-file save). Trusted; may anchor comparisons.
@@ -483,6 +484,8 @@ Two commands, one record. They differ only in whether anything continues afterwa
 | `/handoff` | yes | yes — to a successor session | yes |
 | `/close` | yes | no | yes |
 
+> **Corrected 2026-11-09 (§7.25).** The table conflates two kinds of session. `/handoff` ends a **chat** session and continues the **work** session, so it asks **no** attestation. Only `/done` (this `/close`) ends a work session, and it rates the whole of it.
+
 `/close` exists because **a handoff is the minority case.** Most sessions end with no successor: the work is done, or the developer moves to something unrelated. Without a counterpart command, those sessions have no way to be closed out at all, and the attestation surface would only ever cover the subset of work that happened to continue somewhere.
 
 ##### The dominant case is neither command
@@ -571,6 +574,8 @@ If the data shows no relationship, that is a publishable result too, and cheaper
 
 **Why it matters commercially.** Spend dashboards are commodity (§4, row 9 of §11). What no tool connects is **behaviour, cost and outcome on one timeline, per developer, over time**. The closure record is where those three meet, and the trend it produces — "am I getting better at working with AI?" — is the value a developer pays to keep (§7.14). Efficiency counts, not only savings: better work for the same spend is a win the record must be able to show.
 
+> **Revised 2026-11-09 by the maintainer — work sessions (§7.25).** A closure closes a **work session**, not a chat session. The rating covers the whole work session, and the closure states how many handoffs it contained; its time frame spans all of its chat sessions. `/handoff` writes a handoff record with the brief and open items and **no rating**. Where the 2026-11-08 block below says "session", read *work session* for what `/done` closes and *chat session* for what is measured.
+>
 > **Revised 2026-11-08 by the maintainer — this block supersedes the flow, the write path and the tag list below where they differ.** The record is now called a **closure**.
 >
 > **The flow, in this order:**
@@ -584,7 +589,7 @@ If the data shows no relationship, that is a publishable result too, and cheaper
 >
 > **Dropped for v1:** behaviour tags (the vocabulary below is kept for later), and a final rating separate from the gut rating — the statistics now come after saving, so there is nothing to revise the rating against.
 >
-> **The write path is MCP**, not the inbox file described under *The write path* below — invariant 6 is rewritten to allow two append-only records (`MCP.md` §4.1). The Modelog MCP server is a prerequisite for **saving**. Without it, `/done` still runs all four steps, prints the closure as Markdown, and says plainly that it was not saved (§7.24 constraint 2).
+> **The write path is MCP**, not the inbox file described under *The write path* below — invariant 6 is rewritten to allow two append-only records (`MCP.md` §4.1). The Modelog MCP server is a prerequisite for **saving**. Without it, `/done` still runs all four steps, prints the closure as Markdown, and says plainly that it was not saved (§7.24 constraint 2). *Reversed 2026-11-09: without the MCP server the commands do not run at all, see §7.25.*
 >
 > **`/handoff` stays a separate command.** It is a deliberate break to keep context short and carries a brief for the successor session. `/done`'s open items are its only overlap with it.
 
@@ -806,6 +811,8 @@ An absence is as observed as a quantity and asserts nothing about whether it oug
 | `/handoff` | yes | yes — a brief for a successor session | yes (§7.22) |
 | `/done` | yes | no | yes (§7.22) |
 
+> **Corrected 2026-11-09 (§7.25).** "Ends the session" mixes two kinds. `/handoff` ends a chat session and continues the work session, writing a handoff record with **no rating**. `/done` ends the work session and writes the closure.
+
 They exist primarily because **ending a session deliberately is itself the practice.** §7.19's finding that sessions overwhelmingly end by abandonment is the problem they address, and the closure record is precisely what abandonment destroys.
 
 ##### Reconciling this with §7.19's independence rule
@@ -813,7 +820,7 @@ They exist primarily because **ending a session deliberately is itself the pract
 §7.19 states: *"Modelog may measure whether a handoff practice saved money. It must not perform the handoff it then scores."* Shipping the commands does not breach that, under two constraints that keep the distinction real rather than verbal:
 
 1. **The measured signal is the behaviour, not the command.** Modelog scores session length, context growth and reset frequency. A developer who ends sessions cleanly by hand produces identical data to one running `/handoff`, and Modelog cannot tell them apart — by construction, since it never observes which command ran.
-2. **The commands work with Modelog uninstalled.** Neither may require the MCP server, the store, or the extension to function. Without Modelog they do their job and write nothing. A command that only works while the product is measuring it is lock-in wearing a tip's clothing.
+2. ~~**The commands work with Modelog uninstalled.**~~ **Reversed 2026-11-09 by the maintainer.** With work sessions (§7.25) the commands are Modelog's own record-keeping, not a general practice, so they require Modelog and say so when it is absent; uninstalling removes them (§7.15). Constraint 1 alone now carries the independence argument: Modelog still measures the behaviour, never which command ran, and a developer who ends chats cleanly by hand is indistinguishable in the data. *The original text, for the record:* Neither may require the MCP server, the store, or the extension to function. Without Modelog they do their job and write nothing. A command that only works while the product is measuring it is lock-in wearing a tip's clothing.
 
 Where the rule still binds: Modelog must not perform a handoff automatically, must not nag toward one, and must report "it did nothing" when that is what the data says (§7.23).
 
@@ -868,8 +875,50 @@ Verification status, measured on the development machine 2026-11-07:
 ##### Open
 
 - Per-tool verification of every `[untested]` row above, before any installer is written.
-- **Whether the commands live in this repository or their own.** Constraint 2 makes them independently useful with no Modelog dependency, which argues for a separate artifact — and that is also how they reach developers who never install the extension.
-- **Whether `/handoff`'s successor brief is content.** It summarises work in progress, so it is plausibly subject to invariant 1 and §8.1 rather than merely §7.11's sync toggle. §7.22's closure summary already set the precedent for a single content-adjacent field; this would be a second, and it is generated rather than attested.
+- *Resolved 2026-11-09: this repository, since the commands now require Modelog (constraint 2 reversed).* **Whether the commands live in this repository or their own.** Constraint 2 makes them independently useful with no Modelog dependency, which argues for a separate artifact — and that is also how they reach developers who never install the extension.
+- *Resolved 2026-11-08: the brief is stored as a closure field, under the same terms as the summary and open items. See `PLAN-recommendations.md` question 3.* **Whether `/handoff`'s successor brief is content.** It summarises work in progress, so it is plausibly subject to invariant 1 and §8.1 rather than merely §7.11's sync toggle. §7.22's closure summary already set the precedent for a single content-adjacent field; this would be a second, and it is generated rather than attested.
+
+#### 7.25 Work sessions (specified 2026-11-09, not scoped)
+
+**Why this section exists.** Until 2026-11-09 this document used "session" for one thing, a chat log, and §7.19, §7.22 and §7.24 were written that way. The maintainer works in **work sessions**: a stretch of work toward one result, which may be split across several chats by `/handoff` and is closed by `/done`. The missing distinction is why `/handoff` was specified as asking a rating. The definitions are in §6.
+
+**Why it matters.** Splitting a work session into smaller chats is the practice Modelog should make measurable. At the chat level a handoff flatters itself, since three short chats each look cheaper than one long one. Only at the work-session level can the real comparison be seen: one chat that ran to 400k context versus the same work split by handoffs. It is also what §7.24's own marker example (*"end sessions before ~120k context"*) needs in order to get a verdict.
+
+**The unit people know stays first.** The Dashboard and the tools keep leading with chat sessions. The work session is an additional view, not a replacement.
+
+##### Requirements
+
+| # | Requirement |
+| :-- | :--- |
+| W1 | **`/handoff` takes no rating.** It ends a chat session, continues the work session, and writes a handoff record: the brief and the open items, each developer-approved with its provenance |
+| W2 | **`/done` closes the work session.** The rating covers all of it and is **required** (maintainer, 2026-11-09): no rating, nothing saved. It is asked in plain text, *"Rate this work session from 1 (very poor) to 10 (very good)"*, and the developer types the number (maintainer, 2026-11-09). A question tool's 2–4 buttons cannot hold ten values, and a range-then-value pair of clicks is slower than typing one digit. The closure states how many handoffs the work session contained, and its time frame spans all of its chat sessions |
+| W3 | **`/start`** writes a start record, so an unclosed work session is a real row and abandonment is counted rather than invisible (§7.19's dominant case). It asks nothing: **no goal** is recorded (maintainer, 2026-11-09). Goal tracking is not Modelog's job; it can be added later if enough developers ask for it |
+| W4 | **`/done` or `/handoff` without a start** creates the work session implicitly, starting with that chat, labelled *started implicitly*. So a forgotten `/start` loses nothing: a first `/handoff` records the work session as begun in that chat |
+| W5 | **One tool per work session.** "Tool" is Modelog's `source`, so Claude Code's CLI and its VS Code extension count as one tool `[untested]`. A work session therefore has one money unit and a total that invariant 5 allows. A handoff written by one tool is not continued by another |
+| W6 | **One workspace per work session** until central sync exists, because its chats are linked through that workspace's own store. It may run past a day: it shouldn't, but it can, and its time frame states active time separately from elapsed time (§7.21) |
+| W7 | **Open work sessions are surfaced after 2 days without activity.** A VS Code notification, checked when the extension starts and on a timer, whose action opens the Dashboard on the Work sessions tab. Each entry there links to the work session's last chat session if a client offers a way to open one `[untested]`, and otherwise shows that chat's title (open question below), its time and its id |
+| W8 | **"Lost" is a label, never a deletion.** An open work session past the threshold is shown as lost when read. Closing one late writes a closure whose attestation time shows it is retroactive, which is §7.19's required abandoned-session path |
+| W9 | **Sync-ready from the first record.** Every record carries a workspace or install identity, so the central server (§7.14) can roll up work sessions from several workspaces at once, e.g. one m8a RDE and two local WSL workspaces. The measurement needs only numbers (chats and handoffs per work session, context peaks, cost, durations, rating), which can sync without any text; the summary, open items and brief stay behind §7.11's own toggle. On an m8a workspace, sync is the only thing that keeps these records at all (§7.14) |
+| W10 | **The Dashboard is restructured into tabs.** The agent tools move from tabs to a dropdown, shown when more than one is in use. Tabs become sections: **Home**, **Delegation**, **Model switches**, **Work sessions**. A later feature gets its own tab where that makes sense. *Built for 0.9.0 (2026-11-10): Home holds the stats, the cost chart, model comparison and marked changes; Work sessions lists records only, with no measured figures yet* |
+
+Every record a work session produces lives in one append-only table, `work_records`, with a `kind` column (maintainer, 2026-11-09): `start`, `continue` (a new chat claiming a handoff at `/start`, so the claim happens at that moment and two windows cannot both take it), `handoff` and `done`. Each is appended under invariant 6's terms for closures: developer-approved, append-only, never updated or deleted by the MCP server.
+
+##### Linking chats to a work session
+
+- **Chat identity is observed by the server, never supplied by the agent.** Claude Code starts one MCP server per chat, and its environment carries `CLAUDE_CODE_SESSION_ID`, equal to the chat's log id and the store's `session_id` (`[verified]` 2026-11-08 on four processes). The link is resolved **when read**, not when saved, because the store can lag far behind the logs. The id counts only if that chat has a turn in the 10 minutes before the save. Otherwise the link falls back to exactly one active chat in the same folder, and otherwise to *chat not identified*. A guess is never stored. Codex shows `CODEX_SESSION_ID` and `CODEX_THREAD_ID` in its binary, which is string presence only `[untested]`.
+- **Continuing a work session: `/handoff`, new chat, `/start`, one click** (maintainer, 2026-11-09). The brief is the handoff prompt, written by the agent, approved by the developer and **stored**. In the new chat, `/start` asks one native question: one option per handoff waiting to be continued (this workspace, this tool), labelled by time and the brief's first words, plus *New work session*. It is asked even when there is only one option, so the link is never guessed. Picking a handoff gives the agent the stored brief and open items, and the new chat's records carry its id (`continues_from`). Nobody copies or pastes anything while Modelog is connected.
+- **A handoff is continued once.** The first record that names it takes it, and it leaves every other list. If two chats claim it at the same moment, the server refuses the second (*"Not saved"*) and that chat asks again. A continuation by a different tool is refused (W5).
+- **Never printed for pasting.** When the save succeeds, the brief is not printed again: the developer saw it when approving.
+- **Without Modelog's MCP server connected, `/start`, `/handoff` and `/done` do not run** (maintainer, 2026-11-09; this reverses §7.24 constraint 2). They check for Modelog's tools first and stop with one plain message: *Modelog isn't running (its MCP server isn't connected), so this command can't run.* A save that fails during the flow stops the same way, stating Modelog's reason and that nothing was saved. Nothing is printed for pasting.
+- **Safety net.** A chat that used neither `/start` nor a link, and then runs `/handoff` or `/done` while handoffs are waiting, is asked whether it continues one of them. Only *no* creates a new implicit work session (W4).
+- **Known limit: Claude Code's built-in `/clear`.** It starts a new chat in the same window, but the MCP server keeps the old chat id (measured 2026-11-08). With two windows in one folder, a chat after `/clear` may not link to its work session.
+
+##### Open
+
+- **The chat title.** Claude Code writes an `ai-title` record into its logs: 24 of the 30 logs from the last month carry one, 19–55 characters, rewritten as the chat goes on. It is generated from the conversation, so it is derived from content even though it is not `message.content`. Whether Modelog may show it, read live from the log for the Dashboard and never stored or synced, or not at all, is an invariant-1 decision to make before W7 is built. Codex and Copilot titles are unchecked.
+- **Opening a specific chat** from another extension: whether Claude Code, Copilot or Codex offers a command or URI for it is unchecked.
+- ~~How a chat whose brief was pasted joins its work session.~~ Moot, 2026-11-09: nothing is printed for pasting.
+- **Whether Modelog has a stable install identity today** (W9) is unchecked.
 
 ### Part 3 — Enterprise & Web
 
@@ -888,6 +937,7 @@ What crosses:
 - Derived metrics, labels, behaviour tags and closure-record fields (§7.22).
 - **The closure summary is the one content-adjacent field** (§7.19). The inspector lists it separately, and it has its own toggle; its default is an open product decision (§11 row 27).
 - Never raw content, prompts, code, or anything read from `message.content`.
+- **Never a source:** the uninstall copies in `~/.modelog/records/` (§7.15). They hold the same closure fields as the store, outside its schema checks and the inspector, so sync reads the store only.
 
 #### 7.12 Team Rollup
 
@@ -932,7 +982,7 @@ Consequences:
 - **The local store dies with the workspace.** So do `~/.claude/projects` and the closure records. Without a central copy, a developer's history is only as long as her shortest-lived workspace. The backend is therefore not only an aggregation layer: **it is the only place that history survives.** That is a stronger paid offer than aggregation alone, and it comes from the same mechanism.
 - **Identity is the user's account plus a workspace id, never the machine.** Environments are recreated; the person and her history are not.
 - **Sync is an outbox:** records are queued locally and retried, and every record carries its own id, so delivery is idempotent. Opt-in happens once, at enrollment (§7.11).
-- **Flush early, not at shutdown.** Workspace deletion is not an extension event: the uninstall hook (`INSTALL-ux.md` §1.1) does not fire when a container is destroyed. The outbox should flush on `/done` and periodically, accepting that records written seconds before deletion can be lost. That loss must be reported as a gap, not hidden.
+- **Flush early, not at shutdown.** Workspace deletion is not an extension event: the uninstall hook (`INSTALL-ux.md` §1.1) does not fire when a container is destroyed. The outbox should flush on `/done` and periodically, accepting that records written seconds before deletion can be lost. That loss must be reported as a gap, not hidden. The uninstall copy-out (§7.15, 0.10.0) does not change this: it runs only on an uninstall, and it writes into the same home directory the workspace takes with it.
 - **Constraints inherited unchanged:** §7.11's payload rules, §4.5's ban on cross-source totals, and invariant 8 (`ENTERPRISE.md`) once a team is involved.
 
 **The public/private contract.** The sync payload schema, its version, and the enrollment handshake are what customers inspect to verify what leaves their machine. They are specified and versioned **in this public repository**, published as a package the private backend depends on. They are not copied into the private repository, where two copies would drift — the same reasoning as the invariants above.
@@ -956,6 +1006,15 @@ Deliverables:
 - **MCP registration split into two targets.** `vscode.lm.registerMcpServerDefinitionProvider` for VS Code's own MCP client, which writes no config files and can run the server on the editor's Node via `process.execPath`; config-file writing for Claude Code, which reads its configuration at session start only and therefore must never be told it is connected immediately. `INSTALL-ux.md` §2.
 - **Three-state Ollama detection** — absent, reachable-with-no-models, reachable-with-models. The middle state must not be reported as "not found"; the remedy there is pulling a model. `INSTALL-ux.md` §3.
 - Raising `engines.vscode` from `^1.90.0`, once the floor for the MCP provider API is established rather than guessed.
+
+**Uninstall keeps the developer's records** *(decided 2026-11-08, target 0.10.0; build plan in `PLAN-recommendations.md`)*. VS Code deletes the extension's storage directory on every uninstall, unconditionally, after running the `vscode:uninstall` hook (`INSTALL-ux.md` §1.1, re-verified against 1.144). Until 0.8.0 that lost only a cache the logs rebuild. Markers and the work-session records (§7.25: start, handoff and closure, with their summaries, open items and briefs) exist in no log, and invariant 6 makes their deletion the developer's act, never a side effect. Therefore:
+
+- **Records survive a plain Uninstall.** The hook's first act copies them, records only, to `~/.modelog/records/` (atomic, mode `0600`). A reinstall imports them by id, append-only, and says so. Nothing is restamped: ids, the links between a work session's records, and each record's original identity (W9) are kept, so chains still read as one work session and sync cannot count a record twice. The copies are never deleted automatically. A prompted `Export My Records` command gives a copy the developer directs.
+- **Configuration Modelog changed is restored**, as since 0.6.0. No option leaves an MCP entry pointing at a deleted server.
+- **Installed skills are always removed**, edited or not *(revised 2026-11-09 by the maintainer; this replaced "only while unmodified")*. No Modelog skill is left after an uninstall, and an edited copy would still call Modelog tools that no longer exist. The hash recorded at install is kept to log an edit, and a `SKILL.md` that existed before install is restored from its backup.
+- **A clean uninstall is a choice made in `Remove Modelog's Changes`**, by ticking the deletion of the records and of their copies. Neither is ever ticked by default or run by the hook.
+- **Not covered, and stated as such:** a destroyed ephemeral workspace never runs the hook (§7.14); a copy-out killed by the hook's 5 s timer is followed by the deletion anyway, logged but invisible; uninstalling 0.8.0 or 0.9.0, whose hooks predate this, loses records.
+- **Rejected for now:** moving the records to a second database outside `globalStorage`. It changes every client's MCP registration and adds a second schema version, and it outlives neither a Coder workspace nor the Windows/WSL split. Durability beyond one machine is §7.14 sync's job.
 
 **Boundary:** detection is not enablement. Probing `localhost:11434` crosses nothing and is already sanctioned by §7.8. *Using* Ollama enters the content boundary and requires explicit opt-in. Likewise, MCP registration writes outside Modelog's own storage and stays an explicit confirmed action per `MCP.md` §7.3 — never a side effect of clicking through onboarding.
 

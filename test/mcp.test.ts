@@ -108,8 +108,10 @@ test("tools/list advertises every tool with a JSON Schema", { skip: !existsSync(
       "modelog_get_definitions",
       "modelog_get_markers",
       "modelog_get_summary",
+      "modelog_get_work_sessions",
       "modelog_list_sessions",
       "modelog_mark_change",
+      "modelog_save_work_record",
     ]);
 
     for (const t of res.result.tools) {
@@ -231,9 +233,9 @@ test("every advertised tool answers a bare call over the wire", { skip: !existsS
   const { client } = await handshake();
   try {
     const list = await client.request("tools/list");
-    // The append tool is excluded: a bare call is a missing-argument error by
-    // design, and is covered by its own wire test below.
-    for (const t of list.result.tools.filter((x: any) => x.name !== "modelog_mark_change")) {
+    // The append tools are excluded: a bare call is a missing-argument error
+    // by design, and each is covered by its own wire test.
+    for (const t of list.result.tools.filter((x: any) => x.annotations?.readOnlyHint === true)) {
       const res = await client.request("tools/call", { name: t.name, arguments: {} });
       assert.ok(res.result, `${t.name} returned no result`);
       assert.ok(!res.result.isError, `${t.name} errored: ${res.result?.content?.[0]?.text}`);

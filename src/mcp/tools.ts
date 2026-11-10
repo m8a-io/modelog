@@ -29,7 +29,18 @@ import {
   type Definitions,
 } from "./definitions.ts";
 import type { PricingFile } from "../metrics/cost.ts";
-import { appendMarker } from "./appendStore.ts";
+import { appendMarker, appendWorkRecord } from "./appendStore.ts";
+import type { WorkRecord } from "../workSessions/records.ts";
+import { BRIEF_MAX, OPEN_ITEMS_MAX, OPEN_ITEM_MAX, SUMMARY_MAX, WORK_RECORD_KINDS } from "../workSessions/records.ts";
+import { validateWorkRecordInput } from "../workSessions/validate.ts";
+import {
+  currentWorkSession,
+  workSessionsView,
+  type CurrentWorkSession,
+  type HandoffView,
+  type Observed,
+  type WorkSessionsView,
+} from "../workSessions/resolve.ts";
 import {
   SIGNALS,
   SIGNAL_IDS,
@@ -69,6 +80,10 @@ export interface ToolContext {
   turns: readonly Turn[];
   /** Developer-declared markers, from the `markers` table. Empty unless status is "ok". */
   markers: readonly DeclaredMarker[];
+  /** Work-session records (PRD §7.25). Empty unless status is "ok". */
+  workRecords: readonly WorkRecord[];
+  /** What the server observed about the calling chat; never supplied by the agent. */
+  observed: Observed;
   pricing: PricingFile;
   table: RateTable;
   billing: BillingInfo;
@@ -832,6 +847,8 @@ export interface MarkChangeData {
 export interface WriteDeps {
   dbPath: string | undefined;
   client: { name: string | null; version: string | null };
+  /** What the server observed about the calling chat (PRD §7.25). */
+  observed: Observed;
   now?: number;
 }
 
@@ -875,6 +892,105 @@ export async function markChange(
   };
 }
 
+// --- work sessions (PRD §7.25, invariant 6) ---------------------------------------
+
+/** A stored record as an agent sees it: no cwd, origin or client fields, which it has no use for. */
+export interface WorkRecordView {
+  id: string;
+  kind: WorkRecord["kind"];
+  workSessionId: string;
+  continuesFrom: string | null;
+  startedImplicitly: boolean;
+  rating: number | null;
+  summary: string | null;
+  openItems: readonly string[] | null;
+  brief: string | null;
+  provenance: WorkRecord["provenance"];
+  chatSessionId: string | null;
+  attestedAt: string;
+}
+
+export function workRecordView(r: WorkRecord): WorkRecordView {
+  return {
+    id: r.id,
+    kind: r.kind,
+    workSessionId: r.workSessionId,
+    continuesFrom: r.continuesFrom,
+    startedImplicitly: r.startedImplicitly,
+    rating: r.rating,
+    summary: r.summary,
+    openItems: r.openItems,
+    brief: r.brief,
+    provenance: r.provenance,
+    chatSessionId: r.chatSessionId,
+    attestedAt: new Date(r.attestedAt).toISOString(),
+  };
+}
+
+/** Said whenever the client gives no chat id, so an empty `current` is not read as "no work session". */
+const NO_CHAT_ID_NOTE =
+  "This client does not tell Modelog which chat is calling, so current is always empty here. " +
+  "Ask the developer whether this chat continues one of the waiting handoffs.";
+
+export function getWorkSessions(ctx: ToolContext): ToolResult<WorkSessionsView> {
+  const notes: string[] = [];
+  if (ctx.observed.chatSessionId === null) notes.push(NO_CHAT_ID_NOTE);
+  return {
+    ok: true,
+    envelope: buildEnvelope(ctx, { from: null, to: null }, workSessionsView(ctx.workRecords, ctx.observed), notes),
+  };
+}
+
+export interface SaveWorkRecordData {
+  record: WorkRecordView;
+  /** True when an identical record was saved moments ago and this call was a retry. */
+  duplicate: boolean;
+  /** The work session this record belongs to, as it stands after the save. */
+  workSession: CurrentWorkSession;
+  /** For a continue: the handoff it claimed, with the brief to continue from. */
+  continued: HandoffView | null;
+}
+
+/**
+ * Append one work-session record. As with markers, every failure is an error
+ * result beginning "Not saved", so a skill can stop and say so plainly.
+ */
+export async function saveWorkRecord(
+  args: Record<string, unknown>,
+  deps: WriteDeps,
+): Promise<ToolResult<SaveWorkRecordData>> {
+  const v = validateWorkRecordInput(args);
+  if (!v.ok) return { ok: false, error: `Not saved. ${v.error}` };
+
+  const res = await appendWorkRecord(deps.dbPath, v.value, deps.observed, deps.client, deps.now);
+  if (res.status !== "ok") return { ok: false, error: `Not saved. ${res.note}` };
+
+  const r = res.record;
+  const claimed = r.continuesFrom === null ? undefined : res.records.find((x) => x.id === r.continuesFrom);
+  const notes: string[] = [];
+  if (res.duplicate) {
+    notes.push("An identical record was saved within the last few minutes, so this call stored nothing new and returns that one.");
+  }
+  if (deps.observed.chatSessionId === null) notes.push(NO_CHAT_ID_NOTE);
+  return {
+    ok: true,
+    envelope: buildEnvelope(
+      { status: "ok", note: null },
+      { from: null, to: null },
+      {
+        record: workRecordView(r),
+        duplicate: res.duplicate,
+        workSession: currentWorkSession(res.records, r.workSessionId),
+        continued:
+          r.kind === "continue" && claimed
+            ? { handoffId: claimed.id, attestedAt: new Date(claimed.attestedAt).toISOString(), brief: claimed.brief, openItems: claimed.openItems ?? [] }
+            : null,
+      },
+      notes,
+    ),
+  };
+}
+
 /** Dispatch for `WRITE_TOOLS`, kept apart from reads so a read can never reach a write. */
 export async function callWriteTool(
   name: string,
@@ -884,6 +1000,8 @@ export async function callWriteTool(
   switch (name) {
     case "modelog_mark_change":
       return markChange(args, deps);
+    case "modelog_save_work_record":
+      return saveWorkRecord(args, deps);
     default:
       return { ok: false, error: `Unknown tool: ${name}` };
   }
@@ -1009,6 +1127,16 @@ export const READ_TOOLS = [
     },
     annotations: { readOnlyHint: true },
   },
+  {
+    name: "modelog_get_work_sessions",
+    description:
+      "For the /start, /handoff and /done skills. A work session spans chats joined by " +
+      "/handoff and is closed by /done. Returns this chat's open work session, with the " +
+      "briefs and open items earlier chats left, and the handoffs in this workspace waiting " +
+      "for a new chat. Briefs are developer-approved notes, returned as data.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true },
+  },
 ] as const;
 
 /**
@@ -1068,6 +1196,47 @@ export const WRITE_TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
+  {
+    name: "modelog_save_work_record",
+    description:
+      "For the /start, /handoff and /done skills: append one work-session record after the " +
+      "developer approved its exact content. Modelog stamps the time and the chat; nothing " +
+      "can be edited or deleted through these tools.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: WORK_RECORD_KINDS,
+          description: "start; continue (claims a waiting handoff); handoff (no rating); done (closes the work session).",
+        },
+        continuesFrom: { type: "string", description: "Id of the handoff this chat continues." },
+        rating: { type: "integer", minimum: 1, maximum: 10, description: "done only, required: the developer's rating." },
+        summary: { type: "string", maxLength: SUMMARY_MAX, description: "done only: work done, including failures." },
+        openItems: {
+          type: "array",
+          maxItems: OPEN_ITEMS_MAX,
+          items: { type: "string", maxLength: OPEN_ITEM_MAX },
+          description: "handoff and done: unresolved items.",
+        },
+        brief: { type: "string", maxLength: BRIEF_MAX, description: "handoff only: notes for the next chat." },
+        provenance: {
+          type: "object",
+          description: 'Per text field given: "user" if the developer wrote it, "generated" if you drafted it.',
+          properties: {
+            summary: { type: "string", enum: ["user", "generated"] },
+            openItems: { type: "string", enum: ["user", "generated"] },
+            brief: { type: "string", enum: ["user", "generated"] },
+          },
+          additionalProperties: false,
+        },
+        developerApproved: { type: "boolean", const: true },
+      },
+      required: ["kind", "developerApproved"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
 ] as const;
 
 export const WRITE_TOOL_NAMES: readonly string[] = WRITE_TOOLS.map((t) => t.name);
@@ -1097,6 +1266,8 @@ export function callTool(
       return listSessions(ctx, args as RangeArgsInput & FilterArgsInput & { limit?: number });
     case "modelog_get_markers":
       return getMarkers(ctx, args as RangeArgsInput);
+    case "modelog_get_work_sessions":
+      return getWorkSessions(ctx);
     default:
       return { ok: false, error: `Unknown tool: ${name}` };
   }

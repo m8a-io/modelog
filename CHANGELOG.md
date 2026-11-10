@@ -2,6 +2,27 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] — Work sessions
+
+### Added
+
+- **Work sessions: `/start`, `/handoff` and `/done`.** A work session is your stretch of work toward one result, and it can span several chats. `/handoff` ends a chat and leaves a brief and open items for the next one, which you approve; `/start` in the next chat offers it, so nothing is copied or pasted. `/done` closes the whole work session: it asks for your rating from 1 to 10 *before* showing anything, then drafts what was done, including what failed, and what is still open, for you to approve. Without Modelog's MCP server the commands stop and say so; nothing is printed for pasting.
+- **Enable MCP Server installs the three commands**, in the same confirmation as the MCP entry: `~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and Copilot. Each file is read back after writing. A `SKILL.md` already there is set aside and put back on removal. Disable removes them once no other registration uses that folder; uninstall and `Modelog: Remove Modelog's Changes` remove them, edited or not. After an update whose commands changed, a notification offers **Update Skills**, once.
+- **Two MCP tools**, `modelog_save_work_record` (append only, after your approval) and `modelog_get_work_sessions`. Your assistant never supplies a chat id: in Claude Code the server observes it from its own environment. Like markers, the records cannot be edited or deleted through MCP, and SQLite enforces that.
+- **The Dashboard is now tabs**: Home (totals, cost chart, model comparison, marked changes), Delegation, Model switches and **Work sessions**. The Work sessions tab lists every work session in the workspace: open, done, or *lost* after two days without activity (a label, never a deletion), with its chats, handoffs, rating, elapsed time and the text you approved. Cost and active time per work session are not measured yet.
+
+### Changed
+
+- **Choosing an assistant is a dropdown** in the Dashboard's header, shown when more than one has data. Each is still its own dashboard in its own unit.
+- The store schema moves to version 8 (a `work_records` table, and a `meta` table holding this install's id for a future sync). On the standard SQLite store, upgrading needs no rescan. Clearing or rebuilding the cache leaves work-session records alone.
+- The MCP server's instructions and tool definitions grow from about 7,960 to 10,090 characters, paid by every connected session.
+
+### Known limits
+
+- **Tested in Claude Code only.** Codex and Copilot get the same commands, but their records do not yet carry which tool or chat wrote them, so a work session is not yet held to one tool there.
+- **Uninstalling deletes marked changes and work-session records**, along with the rest of Modelog's storage. Usage figures rebuild from your logs; these records exist nowhere else. Keeping them is planned for a later release.
+- After Claude Code's built-in `/clear`, the MCP server keeps the old chat's id, so with two windows in one folder a chat after `/clear` may not link to its work session.
+
 ## [0.8.0] — Mark a change you decide to make
 
 ### Added
