@@ -14,7 +14,8 @@ import {
   runCli,
   type CliClient,
 } from "../mcp/cliRegistration.ts";
-import { footprintPath, readFootprint, removeFootprint } from "./footprint.ts";
+import { footprintPath, readFootprint, recordCopilotLogging, updateFootprint } from "./footprint.ts";
+import { describeRemovals, removeSkills } from "./skills.ts";
 import {
   findSettingsFileWith,
   isSettingEnabled,
@@ -82,6 +83,7 @@ export function planCleanup(ctx: CleanupContext): CleanupItem[] {
     claudeCodeMcpItem(ctx),
     cliMcpItem(ctx, copilotCliClient(ctx.home)),
     cliMcpItem(ctx, codexClient(ctx.home)),
+    skillsItem(ctx),
     backupFilesItem(ctx),
     collectedDataItem(ctx),
   ].filter((item): item is CleanupItem => item !== undefined);
@@ -131,7 +133,7 @@ function copilotLoggingItem(ctx: CleanupContext): CleanupItem | undefined {
 
       const text = readFileSync(settingsFile, "utf8");
       if (!isSettingEnabled(text, record.key)) {
-        removeFootprint(footprintPath(ctx.home));
+        recordCopilotLogging(footprintPath(ctx.home), undefined);
         return { status: "nothing", note: "Already off." };
       }
 
@@ -144,7 +146,7 @@ function copilotLoggingItem(ctx: CleanupContext): CleanupItem | undefined {
       }
 
       writeFileAtomically(settingsFile, next);
-      removeFootprint(footprintPath(ctx.home));
+      recordCopilotLogging(footprintPath(ctx.home), undefined);
       return { status: "done", note: `Set to false in ${settingsFile}.` };
     },
   };
@@ -220,6 +222,38 @@ function cliMcpItem(ctx: CleanupContext, client: CliClient): CleanupItem | undef
         status: "failed",
         note: result.status === "not-found" ? `"${client.bin}" could not be run.` : result.output,
       };
+    },
+  };
+}
+
+/**
+ * The `/start`, `/handoff` and `/done` skills, in both roots at once.
+ *
+ * Recommended, so the silent hook runs it: no Modelog skill may outlive
+ * Modelog, edited or not (PRD §7.15), because an edited copy still calls
+ * tools that are gone. The edit is logged, and a `SKILL.md` that was there
+ * before install is put back.
+ */
+function skillsItem(ctx: CleanupContext): CleanupItem | undefined {
+  const footprint = readFootprint(footprintPath(ctx.home));
+  const records = footprint?.skills ?? [];
+  if (records.length === 0 && !footprint?.copilotChatSkills) return undefined;
+
+  const restores = records.filter((r) => r.backup).length;
+  return {
+    id: "skills",
+    label: "Remove the /start, /handoff and /done skills",
+    detail:
+      `Deletes ${records.length} SKILL.md file${records.length === 1 ? "" : "s"} Modelog installed, edited or not: ` +
+      records.map((r) => r.path).join(", ") +
+      "." +
+      (restores > 0 ? ` Puts back ${restores} SKILL.md of your own that Modelog set aside.` : ""),
+    recommended: true,
+    run(): Outcome {
+      const removals = removeSkills(ctx.home, ["claude", "agents"]);
+      updateFootprint(footprintPath(ctx.home), (current) => ({ ...current, copilotChatSkills: undefined }));
+      if (removals.length === 0) return { status: "nothing", note: "No skills were installed." };
+      return { status: "done", note: describeRemovals(removals).replace(/\n/g, " ") };
     },
   };
 }
