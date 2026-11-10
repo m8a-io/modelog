@@ -25,8 +25,9 @@ Modelog answers that from data already sitting on your disk.
 - **Prices every turn properly.** Four separately-billed token classes — fresh input, cache read, cache creation, output — with 5-minute and 1-hour cache writes priced apart. In real usage ~95% of input-side tokens are cache reads, so a naive calculation is wrong by orders of magnitude.
 - **Compares models on normalised metrics.** Cost per turn, turns per session, cache hit rate — not raw totals.
 - **Anchors comparisons on real events.** Model switches are detected from the logs, including mid-session, and drawn on the trend chart.
-- **Keeps each assistant in its own unit.** Claude Code and Codex both report in dollars, Copilot in credits — but figures are never summed, compared, or placed on the same axis across assistants, even when the unit matches. Switch between them with one click instead.
+- **Keeps each assistant in its own unit.** Claude Code and Codex both report in dollars, Copilot in credits — but figures are never summed, compared, or placed on the same axis across assistants, even when the unit matches. Pick one from the dropdown instead.
 - **Lets your assistant query your own usage data.** A local MCP server exposes the same metrics as tools, and can record a change you decide to make in how you work, behind an explicit opt-in, with a one-command setup for Claude Code, Copilot and Codex — ask your assistant directly instead of reading a chart.
+- **Tracks work sessions.** `/start`, `/handoff` and `/done` tie a stretch of work across several chats together, and `/done` closes it with your rating. The Dashboard lists them. *New in 0.9.0, tested in Claude Code only.*
 - **Looks like your editor.** Every colour is a VS Code theme variable, so the UI follows your theme — including live theme switches and high-contrast. Enforced in CI.
 
 ## See it in action
@@ -59,7 +60,7 @@ The standalone **Copilot CLI** is a different product and needs none of this: it
 
 ### The MCP bridge — ask your assistant about your own usage
 
-Optional. It lets the assistant you already use query Modelog's metrics as tools, so you can ask *"what did switching models actually change this month?"* rather than reading a chart. It has no network surface and exposes no prompts or code. It reads, with one exception: when you ask your assistant to **mark a change** — *"from today I end sessions before 120k context"* — it can append that one record, after showing it to you. It cannot edit or delete anything, including markers, and it can never touch your usage data. You remove a marker yourself in the Dashboard. Modelog keeps the mark so a later release can show you what changed after it; for now the mark is recorded and listed in the Dashboard, and nothing is scored against it yet.
+Optional. It lets the assistant you already use query Modelog's metrics as tools, so you can ask *"what did switching models actually change this month?"* rather than reading a chart. It has no network surface and exposes no prompts or code. It reads, with two exceptions, each appending one record after showing it to you: **marking a change** you ask for — *"from today I end sessions before 120k context"* — and the **work-session commands** below. It cannot edit or delete anything, including markers and work-session records, and it can never touch your usage data. You remove a marker yourself in the Dashboard. Modelog keeps the mark so a later release can show you what changed after it; for now the mark is recorded and listed in the Dashboard, and nothing is scored against it yet.
 
 There is one command per client, because every client is registered by a different mechanism:
 
@@ -81,11 +82,23 @@ Three things worth knowing before running one:
 
 `Modelog: MCP Server Status` reports each client separately. They fail for four unrelated reasons — a bundle that would not deploy, a project Claude Code has never seen, a CLI that is not on `PATH`, an entry that was never written — and a single "MCP: off" would send you looking in the wrong place.
 
+### Work sessions — `/start`, `/handoff`, `/done`
+
+A **work session** is your stretch of work toward one result. It can span several chats, which is the point: ending a long chat and continuing in a fresh one is cheaper, and only across the whole work session can that be measured honestly. Enabling the MCP bridge also installs three commands for your assistant (in `~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and Copilot), shown to you in the same confirmation:
+
+- **`/start`** begins a work session, or continues one a previous chat handed off. It asks you which, every time, so a link is never guessed.
+- **`/handoff`** ends this chat and leaves a brief and open items for the next one, which you approve. Nothing to copy or paste: `/start` in the next chat offers it.
+- **`/done`** closes the work session. It asks for your rating from 1 to 10 *before* showing you anything, then drafts what was done — including what failed — and what is still open, for you to approve.
+
+The Dashboard's **Work sessions** tab lists them: open, done, or *lost* after two days without activity — a label, never a deletion. Cost and active time per work session are not measured yet.
+
+The commands need Modelog's MCP server and say so plainly if it is not connected. **0.9.0 is tested in Claude Code only.** Codex and Copilot get the same commands, but their records do not yet carry which tool or chat wrote them.
+
 ### Uninstalling
 
-Modelog's own data needs no attention: VS Code deletes an extension's storage directory when it is uninstalled, and that is where the database lives.
+**Uninstalling deletes your marked changes and work-session records.** VS Code deletes an extension's storage directory when it is uninstalled, and that is where Modelog's database lives. Usage figures are rebuilt from your logs if you reinstall; markers and work-session records exist nowhere else. Keeping them across an uninstall is planned for a later release.
 
-What does need attention is what Modelog wrote **outside** its own storage — Copilot's logging setting, and the MCP entries in Claude Code's, Copilot's and Codex's configs. Left behind, those point at a server file that no longer exists, and Copilot keeps writing prompt-bearing debug files.
+What does need attention is what Modelog wrote **outside** its own storage — Copilot's logging setting, and the MCP entries in Claude Code's, Copilot's and Codex's configs, and the `/start`, `/handoff` and `/done` skill files. Left behind, those point at a server file that no longer exists, and Copilot keeps writing prompt-bearing debug files.
 
 Run `Modelog: Remove Modelog's Changes` before uninstalling. It lists only what is actually present on your machine, ticks the restorative items, leaves the destructive ones (backup files, collected history) unticked, and reports each one separately.
 
@@ -94,7 +107,7 @@ If you just uninstall, Modelog runs the same cleanup automatically on the next V
 ### Reading the numbers
 
 - If the auto-detected billing mode is wrong for you, change the `modelog.billingMode` **setting** (Settings → Extensions → Modelog — a setting, not a palette command). On a subscription, figures are labelled estimates at API list rates, because a subscription is not billed per token.
-- Each assistant stays in its own unit and is never summed or compared against another. Switch between them with one click.
+- Each assistant stays in its own unit and is never summed or compared against another. Switch between them with the dropdown.
 - A model shown as **cost unavailable** has no rate in the table — it is never priced at a default. Please [open an issue](https://github.com/m8a-io/modelog/issues) if you hit one.
 
 ### Reporting a problem
