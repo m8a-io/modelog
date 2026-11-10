@@ -16,6 +16,7 @@ import { openReadOnly } from "../src/mcp/readOnlyStore.ts";
 import { SCHEMA_VERSION } from "../src/store/store.ts";
 import { PRICING, RATE_TABLE } from "../src/mcp/rates.ts";
 import { makeStore, sqlite, BASE_TS } from "./fixture.ts";
+import { workSessionRows, formatDuration, LOST_AFTER_MS } from "../src/workSessions/dashboard.ts";
 
 /**
  * Work sessions (PRD §7.25): validation, which work session a record joins,
@@ -186,6 +187,74 @@ test("after /done, the same chat's next record starts a new work session", () =>
   apply(rs, HANDOFF, chat("A"), NOW + MIN, "h1");
   assert.equal(rs[1].workSessionId, "h1");
   assert.equal(rs[1].startedImplicitly, true);
+});
+
+// --- the Dashboard's Work sessions tab ---------------------------------------------------
+
+const when = (ts: number) => `t+${(ts - NOW) / MIN}`;
+
+test("Dashboard: a closed chain shows its chats, handoffs, rating, elapsed time and closure text", () => {
+  const rs: WorkRecord[] = [];
+  apply(rs, { kind: "start", developerApproved: true }, chat("A"), NOW, "s1");
+  apply(rs, HANDOFF, chat("A"), NOW + MIN, "h1");
+  apply(rs, { kind: "continue", continuesFrom: "h1", developerApproved: true }, chat("B"), NOW + 2 * MIN, "c1");
+  apply(rs, DONE, chat("B"), NOW + 90 * MIN, "d1");
+  const [row, ...rest] = workSessionRows(rs, NOW + 100 * MIN, when);
+  assert.equal(rest.length, 0);
+  assert.equal(row.status, "done");
+  assert.equal(row.started, "t+0");
+  assert.equal(row.chats, 2);
+  assert.equal(row.handoffs, 1);
+  assert.equal(row.rating, "7/10");
+  assert.equal(row.timing, "1 h 30 min elapsed");
+  assert.equal(row.closedLate, false);
+  assert.equal(row.tool, "Claude Code");
+  assert.equal(row.summary, DONE.summary);
+  assert.deepEqual(row.openItems, ["Installer"]);
+  assert.equal(row.openItemsHeading, "Open items at /done");
+  assert.equal(row.provenanceNote, "open items drafted by the agent");
+});
+
+test("Dashboard: an open work session turns lost after two days without a record — a label, nothing deleted", () => {
+  const rs: WorkRecord[] = [];
+  apply(rs, HANDOFF, chat("A"), NOW, "h1");
+  const open = workSessionRows(rs, NOW + LOST_AFTER_MS, when)[0];
+  assert.equal(open.status, "open");
+  assert.equal(open.startedImplicitly, true);
+  assert.equal(open.openItemsHeading, "Open items at the last handoff");
+  assert.equal(open.provenanceNote, "open items drafted by the agent");
+  const lost = workSessionRows(rs, NOW + LOST_AFTER_MS + 1, when)[0];
+  assert.equal(lost.status, "lost");
+  assert.equal(lost.timing, "last record 2 d ago");
+  assert.equal(rs.length, 1);
+});
+
+test("Dashboard: a closure after two idle days is marked closed late (W8)", () => {
+  const rs: WorkRecord[] = [];
+  apply(rs, { kind: "start", developerApproved: true }, chat("A"), NOW, "s1");
+  apply(rs, DONE, chat("A"), NOW + LOST_AFTER_MS + MIN, "d1");
+  const row = workSessionRows(rs, NOW + LOST_AFTER_MS + 2 * MIN, when)[0];
+  assert.equal(row.status, "done");
+  assert.equal(row.closedLate, true);
+});
+
+test("Dashboard: newest work session first; the tool is never guessed", () => {
+  const rs: WorkRecord[] = [];
+  apply(rs, { kind: "start", developerApproved: true }, chat("A"), NOW, "s1");
+  apply(rs, { kind: "start", developerApproved: true }, { chatSessionId: null, chatSessionIdSource: null, cwd: null, source: null }, NOW + MIN, "s2");
+  const rows = workSessionRows(rs, NOW + 2 * MIN, when);
+  assert.deepEqual(rows.map((r) => r.id), ["s2", "s1"]);
+  assert.equal(rows[0].tool, "Tool not observed");
+  assert.equal(rows[0].rating, null);
+  assert.equal(rows[0].openItemsHeading, null);
+});
+
+test("durations read as minutes, hours or days", () => {
+  assert.equal(formatDuration(0), "0 min");
+  assert.equal(formatDuration(59 * MIN), "59 min");
+  assert.equal(formatDuration(120 * MIN), "2 h");
+  assert.equal(formatDuration(26 * 60 * MIN), "1 d 2 h");
+  assert.equal(formatDuration(-5), "0 min");
 });
 
 // --- what the read tool shows -----------------------------------------------------------

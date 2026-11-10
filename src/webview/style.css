@@ -210,14 +210,14 @@ tbody tr:hover { background: var(--vscode-list-hoverBackground); }
   margin: .5rem 0 1rem;
 }
 
-/* Source tabs — one dashboard per assistant, never a merged one. */
-.sources {
+/* Section tabs (PRD §7.25 W10). */
+.tabs {
   display: flex;
   gap: 2px;
   margin: 0 0 14px;
   border-bottom: 1px solid var(--vscode-panel-border);
 }
-.sources .source {
+.tabs .tab {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -226,20 +226,43 @@ tbody tr:hover { background: var(--vscode-list-hoverBackground); }
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--vscode-descriptionForeground);
+  font-family: inherit;
   font-size: 12px;
   cursor: pointer;
 }
-.sources .source:hover {
+.tabs .tab:hover {
   color: var(--vscode-foreground);
 }
-.sources .source.active {
+.tabs .tab.active {
   color: var(--vscode-foreground);
   border-bottom-color: var(--vscode-focusBorder);
 }
-.sources .source-count {
+.tabs .tab:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.tabs .tab-count {
   padding: 1px 6px;
   border-radius: 9px;
   background: var(--vscode-badge-background);
   color: var(--vscode-badge-foreground);
   font-size: 10px;
 }
+
+/* Agent tool picker — one dashboard per assistant, never a merged one. */
+.source-picker {
+  font-family: inherit; font-size: .9em;
+  padding: .25rem .4rem; border-radius: 3px; margin-right: .5rem;
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border);
+}
+.source-picker:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+
+/* ---- work sessions ---- */
+
+.work-sessions .switches li { flex-wrap: wrap; }
+.work-sessions .pill { margin-left: 0; }
+.work-sessions .status-lost { border-color: var(--vscode-charts-orange); color: var(--vscode-foreground); }
+.work-sessions .status-open { border-color: var(--vscode-charts-blue); color: var(--vscode-foreground); }
+.work-sessions .open-items {
+  flex-basis: 100%; margin: 0; padding-left: 1.25rem; font-size: .92em;
+}
+.work-sessions .open-items li { display: list-item; padding: .1rem 0; border: 0; }

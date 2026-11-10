@@ -9,6 +9,8 @@
  * never computes (DESIGN.md §8).
  */
 
+import type { WorkSessionRow } from "../workSessions/dashboard.ts";
+
 export type HostMessage = { type: "state"; state: ViewState };
 
 export type WebviewMessage =
@@ -84,6 +86,12 @@ export interface MarkedChangeView {
   /** Set when Modelog cannot measure the signal yet. */
   unmeasurable: boolean;
 }
+
+/**
+ * One work session (PRD §7.25), from its records alone. Summary and open items
+ * are the developer-approved text, rendered as text only.
+ */
+export type WorkSessionView = WorkSessionRow;
 
 export interface SwitchView {
   when: string;
@@ -165,5 +173,7 @@ export interface ViewState {
   switches: SwitchView[];
   /** All marked changes, newest first — not range-limited, there are few and they stay relevant. */
   markedChanges: MarkedChangeView[];
+  /** Every work session in this workspace, newest first — not range-limited, and from every tool. */
+  workSessions: WorkSessionView[];
   warnings: string[];
 }
