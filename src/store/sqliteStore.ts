@@ -167,6 +167,17 @@ export function migrate(db: any): string[] {
   db.exec(META_DDL);
   ensureOriginId(db);
 
+  // Schema 9. The closure rating is gone (#35), and a CHECK constraint tied
+  // it to kind = 'done', which SQLite cannot drop in place. So the table is
+  // rebuilt: renamed aside, its indexes dropped (they would otherwise keep the
+  // names CREATE INDEX IF NOT EXISTS checks), recreated from the current DDL,
+  // refilled with every record minus its rating, and the old copy dropped.
+  // One transaction, so a failure leaves the schema-8 table as it was.
+  const workColumns = new Set<string>(
+    db.prepare("SELECT name FROM pragma_table_info('work_records')").all().map((r: any) => r.name),
+  );
+  if (workColumns.has("rating")) dropWorkRecordRating(db);
+
   // Never LOWER the version. Modelog 0.7.0 and earlier stamp their own number
   // unconditionally, so an older extension opening a store a newer one has
   // migrated labels it old, and the newer MCP server then refuses it. That
@@ -176,6 +187,36 @@ export function migrate(db: any): string[] {
   const found = db.prepare("PRAGMA user_version").get().user_version as number;
   if (found < SCHEMA_VERSION) db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   return added;
+}
+
+const WORK_RECORD_COLUMNS =
+  "id, kind, work_session_id, continues_from, started_implicitly, summary, open_items, brief, " +
+  "provenance, chat_session_id, chat_session_id_source, cwd, source, origin_id, attested_at, " +
+  "client_name, client_version";
+
+function dropWorkRecordRating(db: any): void {
+  db.exec("BEGIN");
+  try {
+    db.exec("ALTER TABLE work_records RENAME TO work_records_v8");
+    for (const ix of [
+      "idx_work_records_session",
+      "idx_work_records_chat",
+      "idx_work_records_attested",
+      "uq_work_records_continues",
+    ]) {
+      db.exec(`DROP INDEX IF EXISTS ${ix}`);
+    }
+    db.exec(WORK_RECORDS_DDL);
+    db.exec(
+      `INSERT INTO work_records (${WORK_RECORD_COLUMNS}) ` +
+        `SELECT ${WORK_RECORD_COLUMNS} FROM work_records_v8 ORDER BY rowid`,
+    );
+    db.exec("DROP TABLE work_records_v8");
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
 }
 
 export class SqliteStore implements Store {

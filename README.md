@@ -27,7 +27,7 @@ Modelog answers that from data already sitting on your disk.
 - **Anchors comparisons on real events.** Model switches are detected from the logs, including mid-session, and drawn on the trend chart.
 - **Keeps each assistant in its own unit.** Claude Code and Codex both report in dollars, Copilot in credits — but figures are never summed, compared, or placed on the same axis across assistants, even when the unit matches. Pick one from the dropdown instead.
 - **Lets your assistant query your own usage data.** A local MCP server exposes the same metrics as tools, and can record a change you decide to make in how you work, behind an explicit opt-in, with a one-command setup for Claude Code, Copilot and Codex — ask your assistant directly instead of reading a chart.
-- **Tracks work sessions.** `/start`, `/handoff` and `/done` tie a stretch of work across several chats together, and `/done` closes it with your rating. The Dashboard lists them. *New in 0.9.0, tested in Claude Code only.*
+- **Tracks work sessions.** `/start`, `/handoff` and `/done` tie a stretch of work across several chats together, and `/done` closes it with what was done and what is still open. The Dashboard lists them. *New in 0.9.0, tested in Claude Code only.*
 - **Looks like your editor.** Every colour is a VS Code theme variable, so the UI follows your theme — including live theme switches and high-contrast. Enforced in CI.
 
 ## See it in action
@@ -84,11 +84,11 @@ Three things worth knowing before running one:
 
 ### Work sessions — `/start`, `/handoff`, `/done`
 
-A **work session** is your stretch of work toward one result. It can span several chats, which is the point: ending a long chat and continuing in a fresh one is cheaper, and only across the whole work session can that be measured honestly. Enabling the MCP bridge also installs three commands for your assistant (in `~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and Copilot), shown to you in the same confirmation:
+A **work session** is your stretch of work toward one result. It can span several chats, which is the point: ending a long chat and continuing in a fresh one is cheaper, and only across the whole work session can that be measured honestly. Three commands for your assistant come with it. Install them with **Modelog: Install Skills** from the Command Palette, which writes them to `~/.claude/skills/` for Claude Code and/or `~/.agents/skills/` for Codex and Copilot after showing you the files, then reload the window:
 
 - **`/start`** begins a work session, or continues one a previous chat handed off. It asks you which, every time, so a link is never guessed.
 - **`/handoff`** ends this chat and leaves a brief and open items for the next one, which you approve. Nothing to copy or paste: `/start` in the next chat offers it.
-- **`/done`** closes the work session. It asks for your rating from 1 to 10 *before* showing you anything, then drafts what was done — including what failed — and what is still open, for you to approve.
+- **`/done`** closes the work session. It drafts what was done — including what failed — and what is still open, for you to approve.
 
 The Dashboard's **Work sessions** tab lists them: open, done, or *lost* after two days without activity — a label, never a deletion. Cost and active time per work session are not measured yet.
 

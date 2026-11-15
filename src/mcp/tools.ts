@@ -901,7 +901,6 @@ export interface WorkRecordView {
   workSessionId: string;
   continuesFrom: string | null;
   startedImplicitly: boolean;
-  rating: number | null;
   summary: string | null;
   openItems: readonly string[] | null;
   brief: string | null;
@@ -917,7 +916,6 @@ export function workRecordView(r: WorkRecord): WorkRecordView {
     workSessionId: r.workSessionId,
     continuesFrom: r.continuesFrom,
     startedImplicitly: r.startedImplicitly,
-    rating: r.rating,
     summary: r.summary,
     openItems: r.openItems,
     brief: r.brief,
@@ -1208,10 +1206,9 @@ export const WRITE_TOOLS = [
         kind: {
           type: "string",
           enum: WORK_RECORD_KINDS,
-          description: "start; continue (claims a waiting handoff); handoff (no rating); done (closes the work session).",
+          description: "start; continue (claims a waiting handoff); handoff; done (closes the work session).",
         },
         continuesFrom: { type: "string", description: "Id of the handoff this chat continues." },
-        rating: { type: "integer", minimum: 1, maximum: 10, description: "done only, required: the developer's rating." },
         summary: { type: "string", maxLength: SUMMARY_MAX, description: "done only: work done, including failures." },
         openItems: {
           type: "array",

@@ -1,5 +1,7 @@
 # Next Session — the recommendation loop (PRD §7.23 / §7.24)
 
+**Superseded 2026-11-15 by `PLAN-trends.md`:** ratings are removed (#35) and the direction is now detecting trends and teaching through them. What was built stays; the rating-based loop below is history.
+
 **Status (2026-11-10): `/start`, `/handoff` and `/done` shipped in 0.9.0 — read "Where the last session left off" first.** Earlier: specification written 2026-11-07; **step 1 complete 2026-11-07** (`RESEARCH-signals.md`); **stage 0 complete and design revised 2026-11-08** (see *Redesign* below). *(As of 2026-11-08: still no code. Superseded: §7.24's commands and the work-session records are built; §7.23's recommendation loop and scoring are not.)*
 
 **Spec:** `PRD.md` §7.23 (the loop), §7.24 (shipping the commands), §7.22 (the closure record this builds on), §7.19 (the authorship rule). Where this document and the PRD disagree, **the PRD wins** — this is sequencing and session context, not requirements.

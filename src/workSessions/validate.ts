@@ -16,7 +16,6 @@ import {
 export interface WorkRecordInput {
   kind: WorkRecordKind;
   continuesFrom: string | null;
-  rating: number | null;
   summary: string | null;
   openItems: string[] | null;
   brief: string | null;
@@ -25,14 +24,14 @@ export interface WorkRecordInput {
 
 export type ValidateWorkRecord = { ok: true; value: WorkRecordInput } | { ok: false; error: string };
 
-const ARGS = ["kind", "continuesFrom", "rating", "summary", "openItems", "brief", "provenance", "developerApproved"];
+const ARGS = ["kind", "continuesFrom", "summary", "openItems", "brief", "provenance", "developerApproved"];
 
 /** Which optional fields each kind accepts. Anything else given is refused, not ignored. */
 const ALLOWED: Record<WorkRecordKind, ReadonlySet<string>> = {
   start: new Set([]),
   continue: new Set(["continuesFrom"]),
   handoff: new Set(["continuesFrom", "brief", "openItems", "provenance"]),
-  done: new Set(["continuesFrom", "rating", "summary", "openItems", "provenance"]),
+  done: new Set(["continuesFrom", "summary", "openItems", "provenance"]),
 };
 
 function text(v: unknown, name: string, max: number): { ok: true; value: string } | { ok: false; error: string } {
@@ -74,7 +73,6 @@ export function validateWorkRecordInput(args: Record<string, unknown>): Validate
   const value: WorkRecordInput = {
     kind,
     continuesFrom: null,
-    rating: null,
     summary: null,
     openItems: null,
     brief: null,
@@ -102,14 +100,6 @@ export function validateWorkRecordInput(args: Record<string, unknown>): Validate
   }
 
   if (kind === "done") {
-    const r = args.rating;
-    if (typeof r !== "number" || !Number.isInteger(r) || r < 1 || r > 10) {
-      return {
-        ok: false,
-        error: "rating is required: a whole number from 1 to 10, given by the developer.",
-      };
-    }
-    value.rating = r;
     const s = text(args.summary, "summary", SUMMARY_MAX);
     if (!s.ok) return s;
     value.summary = s.value;

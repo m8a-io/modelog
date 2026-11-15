@@ -155,7 +155,6 @@ function workSessionList(state: ViewState): HTMLElement {
       `${w.chats} chat${w.chats === 1 ? "" : "s"}`,
       `${w.handoffs} handoff${w.handoffs === 1 ? "" : "s"}`,
     ];
-    if (w.rating) parts.push(`rated ${w.rating}`);
     li.append(el("span", parts.join(" · "), "label"));
     li.append(el("span", w.timing, "when"));
     if (w.closedLate) li.append(el("span", "closed late", "pill"));
