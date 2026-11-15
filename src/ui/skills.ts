@@ -175,6 +175,7 @@ export async function installSkillsCommand(context: vscode.ExtensionContext): Pr
   if (!picked || picked.length === 0) return;
 
   const notes: string[] = [];
+  let wrote = false;
   for (const { target } of picked) {
     const prepared = prepareSkills(context, target);
     if (typeof prepared === "string") {
@@ -192,14 +193,22 @@ export async function installSkillsCommand(context: vscode.ExtensionContext): Pr
     }
     try {
       notes.push(installPrepared(prepared));
+      wrote ||= !prepared.unchanged;
     } catch (e) {
       notes.push(`${skillsRoot(home, target)}: install failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  if (notes.length > 0)
-    void vscode.window.showInformationMessage(
-      `Modelog: ${notes.join(" ")} They take effect in your next session, and need the Modelog MCP server enabled to record anything.`,
-    );
+  if (notes.length === 0) return;
+
+  // An open window reads its skills once, so new ones appear only after a
+  // reload (verified by the maintainer on 0.9.1). The button saves finding
+  // "Developer: Reload Window"; a running chat is lost, hence a choice.
+  const RELOAD = "Reload Window";
+  const tail = wrote
+    ? " Reload the window to make them available, and enable the Modelog MCP server for them to record anything."
+    : "";
+  const choice = await vscode.window.showInformationMessage(`Modelog: ${notes.join(" ")}${tail}`, ...(wrote ? [RELOAD] : []));
+  if (choice === RELOAD) await vscode.commands.executeCommand("workbench.action.reloadWindow");
 }
 
 /** `Modelog: Uninstall Skills`: removes the chosen roots' skills, edited or not, and says which were edited. */

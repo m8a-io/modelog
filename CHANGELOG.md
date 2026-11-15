@@ -6,7 +6,7 @@ All notable changes to Modelog are documented here. Format follows [Keep a Chang
 
 ### Changed
 
-- **The skills are installed from the Command Palette, not by Enable MCP Server.** `Modelog: Install Skills (/start, /handoff, /done)` and `Modelog: Uninstall Skills` replace the 0.9.0 behaviour, where enabling the server also wrote the skills and disabling it removed them. That coupling was unreliable and is gone: Enable and Disable now touch only the MCP registration, and say where the skills come from. Install asks for Claude Code, the Codex/Copilot folder, or both, then shows the same file preview; Uninstall removes them, and names any you had edited.
+- **The skills are installed from the Command Palette, not by Enable MCP Server.** `Modelog: Install Skills (/start, /handoff, /done)` and `Modelog: Uninstall Skills` replace the 0.9.0 behaviour, where enabling the server also wrote the skills and disabling it removed them. That coupling was unreliable and is gone: Enable and Disable now touch only the MCP registration, and say where the skills come from. Install asks for Claude Code, the Codex/Copilot folder, or both, then shows the same file preview, and its confirmation has a **Reload Window** button, because an open window only picks up new skills after a reload; Uninstall removes them, and names any you had edited.
 - **Upgrading from 0.9.0:** skills installed by Enable stay where they are. Run `Modelog: Uninstall Skills` to remove them; the "Update Skills" notice still offers newer copies.
 
 ## [0.9.0] — Work sessions
