@@ -2,6 +2,12 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.2] — No more ratings
+
+### Removed
+
+- **The `/done` rating.** `/done` no longer asks for a 1–10 score, and no longer promises scoring against your marked changes; it drafts what was done and what is still open, as before. Modelog is moving to finding trends in your measured data rather than asking for ratings (#35). The store migrates to schema 9: the `rating` column is dropped from work records, along with any ratings already saved, and everything else in them is kept. The Dashboard's Work sessions tab no longer shows a rating. Reinstall the skills (`Modelog: Install Skills`) to get the new `/done`.
+
 ## [0.9.1] — Skills without the MCP dance
 
 ### Changed

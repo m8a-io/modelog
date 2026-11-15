@@ -139,7 +139,7 @@ test("the append connection refuses every write except INSERT into markers and w
         "ATTACH DATABASE ':memory:' AS other",
         // Schema 8: work records are append-only too, and the origin id is
         // the extension's to make, never the MCP server's to rewrite.
-        "UPDATE work_records SET rating = 10",
+        "UPDATE work_records SET summary = 'x'",
         "DELETE FROM work_records",
         "DROP TABLE work_records",
         "INSERT INTO meta (key, value) VALUES ('origin_id2', 'x')",

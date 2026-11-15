@@ -14,9 +14,11 @@ import type { TurnSource } from "../ingest/adapter.ts";
  * - `continue` — `/start` in a new chat claimed a waiting handoff. The claim is
  *                its own record so it happens at that moment: two windows
  *                cannot both take one handoff (a unique index holds that).
- * - `handoff`  — `/handoff` ended a chat. Brief + open items, **no rating**.
- * - `done`     — `/done` closed the work session. Rating (required), summary,
- *                open items.
+ * - `handoff`  — `/handoff` ended a chat. Brief + open items.
+ * - `done`     — `/done` closed the work session. Summary, open items.
+ *
+ * Closures carried a 1–10 rating until 2026-11-15, when it was removed (#35):
+ * Modelog now looks for trends in measured data instead of asking for a score.
  */
 export type WorkRecordKind = "start" | "continue" | "handoff" | "done";
 
@@ -44,8 +46,6 @@ export interface WorkRecord {
   continuesFrom: string | null;
   /** True on the first record of a work session that had no `/start` (W4). */
   startedImplicitly: boolean;
-  /** `done` only, 1–10, always the developer's own answer. */
-  rating: number | null;
   /** `done` only. */
   summary: string | null;
   /** `handoff` and `done`. */

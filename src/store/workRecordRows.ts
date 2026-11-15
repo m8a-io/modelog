@@ -10,7 +10,7 @@ import type { WorkRecord, WorkRecordKind } from "../workSessions/records.ts";
  * nothing that clears the cache may touch them.
  *
  * The CHECK constraints restate the per-kind field rules at the database, so a
- * defect in the handler cannot store a rated handoff or an unrated closure.
+ * defect in the handler cannot store, say, a brief on a closure.
  * The partial unique index on `continues_from` makes "a handoff is continued
  * once" a database fact: a second claim fails the INSERT.
  *
@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS work_records (
   work_session_id         TEXT    NOT NULL,
   continues_from          TEXT,
   started_implicitly      INTEGER NOT NULL DEFAULT 0 CHECK (started_implicitly IN (0, 1)),
-  rating                  INTEGER CHECK (rating BETWEEN 1 AND 10),
   summary                 TEXT,
   open_items              TEXT,
   brief                   TEXT,
@@ -37,7 +36,6 @@ CREATE TABLE IF NOT EXISTS work_records (
   attested_at             INTEGER NOT NULL,
   client_name             TEXT,
   client_version          TEXT,
-  CHECK ((kind = 'done') = (rating IS NOT NULL)),
   CHECK (summary IS NULL OR kind = 'done'),
   CHECK (brief IS NULL OR kind = 'handoff'),
   CHECK (open_items IS NULL OR kind IN ('handoff', 'done')),
@@ -83,14 +81,14 @@ export function readOriginId(db: any): string | null {
 
 export const INSERT_WORK_RECORD_SQL =
   "INSERT INTO work_records (id, kind, work_session_id, continues_from, started_implicitly, " +
-  "rating, summary, open_items, brief, provenance, chat_session_id, chat_session_id_source, " +
+  "summary, open_items, brief, provenance, chat_session_id, chat_session_id_source, " +
   "cwd, source, origin_id, attested_at, client_name, client_version) " +
-  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
 export function workRecordParams(r: WorkRecord): unknown[] {
   return [
     r.id, r.kind, r.workSessionId, r.continuesFrom, r.startedImplicitly ? 1 : 0,
-    r.rating, r.summary, r.openItems === null ? null : JSON.stringify(r.openItems), r.brief,
+    r.summary, r.openItems === null ? null : JSON.stringify(r.openItems), r.brief,
     JSON.stringify(r.provenance), r.chatSessionId, r.chatSessionIdSource,
     r.cwd, r.source, r.originId, r.attestedAt, r.clientName, r.clientVersion,
   ];
@@ -120,7 +118,6 @@ export function rowToWorkRecord(r: any): WorkRecord {
     workSessionId: r.work_session_id,
     continuesFrom: r.continues_from ?? null,
     startedImplicitly: r.started_implicitly === 1,
-    rating: r.rating ?? null,
     summary: r.summary ?? null,
     openItems,
     brief: r.brief ?? null,

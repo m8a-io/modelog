@@ -44,7 +44,6 @@ const HANDOFF = {
 };
 const DONE = {
   kind: "done",
-  rating: 7,
   summary: "Built the work-session records; the installer is not started.",
   openItems: ["Installer"],
   provenance: { summary: "user", openItems: "generated" },
@@ -66,20 +65,23 @@ function apply(records: WorkRecord[], args: Record<string, unknown>, who: Observ
 
 // --- validation ----------------------------------------------------------------------
 
-test("a closure needs the developer's rating, a whole number from 1 to 10", () => {
+test("a closure takes no rating (removed 2026-11-15, #35)", () => {
   assert.ok(validateWorkRecordInput(DONE).ok);
-  for (const rating of [undefined, 0, 11, 7.5, "7"]) {
-    const v = validateWorkRecordInput({ ...DONE, rating });
-    assert.equal(v.ok, false, String(rating));
-    if (!v.ok) assert.match(v.error, /rating is required/);
-  }
+  const v = validateWorkRecordInput({ ...DONE, rating: 7 });
+  assert.equal(v.ok, false);
+  if (!v.ok) assert.match(v.error, /Unknown argument/);
+});
+
+test("a closure needs its summary", () => {
+  const v = validateWorkRecordInput({ ...DONE, summary: undefined });
+  assert.equal(v.ok, false);
+  if (!v.ok) assert.match(v.error, /summary must be a string/);
 });
 
 test("each kind takes only its own fields", () => {
   assert.ok(validateWorkRecordInput({ kind: "start", developerApproved: true }).ok);
   assert.ok(validateWorkRecordInput({ kind: "start", provenance: {}, developerApproved: true }).ok);
   assert.equal(validateWorkRecordInput({ kind: "start", brief: "x", developerApproved: true }).ok, false);
-  assert.equal(validateWorkRecordInput({ ...HANDOFF, rating: 5 }).ok, false, "a handoff takes no rating");
   assert.equal(validateWorkRecordInput({ ...DONE, brief: "x" }).ok, false, "a closure takes no brief");
   assert.equal(validateWorkRecordInput({ kind: "continue", developerApproved: true }).ok, false, "continue needs a handoff id");
   assert.ok(validateWorkRecordInput({ kind: "continue", continuesFrom: "h1", developerApproved: true }).ok);
@@ -193,7 +195,7 @@ test("after /done, the same chat's next record starts a new work session", () =>
 
 const when = (ts: number) => `t+${(ts - NOW) / MIN}`;
 
-test("Dashboard: a closed chain shows its chats, handoffs, rating, elapsed time and closure text", () => {
+test("Dashboard: a closed chain shows its chats, handoffs, elapsed time and closure text", () => {
   const rs: WorkRecord[] = [];
   apply(rs, { kind: "start", developerApproved: true }, chat("A"), NOW, "s1");
   apply(rs, HANDOFF, chat("A"), NOW + MIN, "h1");
@@ -205,7 +207,6 @@ test("Dashboard: a closed chain shows its chats, handoffs, rating, elapsed time 
   assert.equal(row.started, "t+0");
   assert.equal(row.chats, 2);
   assert.equal(row.handoffs, 1);
-  assert.equal(row.rating, "7/10");
   assert.equal(row.timing, "1 h 30 min elapsed");
   assert.equal(row.closedLate, false);
   assert.equal(row.tool, "Claude Code");
@@ -245,7 +246,6 @@ test("Dashboard: newest work session first; the tool is never guessed", () => {
   const rows = workSessionRows(rs, NOW + 2 * MIN, when);
   assert.deepEqual(rows.map((r) => r.id), ["s2", "s1"]);
   assert.equal(rows[0].tool, "Tool not observed");
-  assert.equal(rows[0].rating, null);
   assert.equal(rows[0].openItemsHeading, null);
 });
 
@@ -324,7 +324,6 @@ test("start, handoff, continue in a new chat, done: stored once each, over the r
 
     await ok({ kind: "start", developerApproved: true }, chat("A"), NOW);
     const h = await ok(HANDOFF, chat("A"), NOW + MIN);
-    assert.equal(h.record.rating, null);
 
     // Chat B's /start sees the handoff waiting, then claims it and gets the brief back.
     const ro = await openReadOnly(fx.path);
@@ -344,7 +343,6 @@ test("start, handoff, continue in a new chat, done: stored once each, over the r
 
     const d = await ok(DONE, chat("B"), NOW + 3 * MIN);
     assert.equal(d.workSession.handoffs, 1);
-    assert.equal(d.record.rating, 7);
 
     const check = await openReadOnly(fx.path);
     const stored = readWorkRecords(check.db);
@@ -362,7 +360,7 @@ test("a refused save says 'Not saved.' and stores nothing", { skip: !sqlite }, a
   const fx = makeStore();
   try {
     const deps = { dbPath: fx.path, client: CLIENT, observed: chat("A"), now: NOW };
-    for (const args of [{ ...DONE, rating: undefined }, { ...DONE, developerApproved: false }]) {
+    for (const args of [{ ...DONE, summary: undefined }, { ...DONE, developerApproved: false }]) {
       const r = await saveWorkRecord(args, deps);
       assert.equal(r.ok, false);
       if (!r.ok) assert.match(r.error, /^Not saved\./);

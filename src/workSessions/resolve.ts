@@ -65,7 +65,6 @@ export function resolveAppend(
       r.kind === input.kind &&
       r.chatSessionId === observed.chatSessionId &&
       r.continuesFrom === input.continuesFrom &&
-      r.rating === input.rating &&
       r.summary === input.summary &&
       r.brief === input.brief &&
       sameItems(r.openItems, input.openItems) &&
@@ -116,7 +115,6 @@ export function resolveAppend(
       workSessionId,
       continuesFrom: input.continuesFrom,
       startedImplicitly,
-      rating: input.rating,
       summary: input.summary,
       openItems: input.openItems,
       brief: input.brief,

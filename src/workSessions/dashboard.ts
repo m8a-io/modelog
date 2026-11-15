@@ -25,8 +25,6 @@ export interface WorkSessionRow {
   /** One for the first chat, plus one per continued handoff. */
   chats: number;
   handoffs: number;
-  /** "8/10", done only. */
-  rating: string | null;
   /**
    * Done: first record to closure, e.g. "2 d 3 h elapsed". Open or lost: time
    * since the last record. Elapsed includes every pause; active time needs the
@@ -112,7 +110,6 @@ export function workSessionRows(
         tool: source === null ? "Tool not observed" : SOURCE_LABELS[source],
         chats: 1 + mine.filter((r) => r.kind === "continue").length,
         handoffs: handoffs.length,
-        rating: done?.rating != null ? `${done.rating}/10` : null,
         timing,
         closedLate,
         summary: done?.summary ?? null,

@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # /handoff — end this chat, keep the work session going
 
-A handoff ends this **chat**, not the work session, so there is **no rating**. You write a brief the next chat will continue from; the developer approves it; Modelog stores it. The developer then opens a new chat and runs `/start`.
+A handoff ends this **chat**, not the work session. You write a brief the next chat will continue from; the developer approves it; Modelog stores it. The developer then opens a new chat and runs `/start`.
 
 **Asking questions:** use your structured question tool if you have one (one click per answer), otherwise ask in plain text. Never pick an answer for the developer.
 

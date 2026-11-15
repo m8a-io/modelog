@@ -275,7 +275,7 @@ Every tool returns a common envelope:
 
 ### 8.9 `modelog_save_work_record` and `modelog_get_work_sessions` — work sessions *(0.9.0, 2026-11-09)*
 
-The second append tool and its read, for the `/start`, `/handoff` and `/done` skills (PRD §7.25). One table, `work_records`, holds four kinds: `start`, `continue` (a new chat claiming a waiting handoff), `handoff` (brief and open items, no rating) and `done` (required 1–10 rating, summary, open items).
+The second append tool and its read, for the `/start`, `/handoff` and `/done` skills (PRD §7.25). One table, `work_records`, holds four kinds: `start`, `continue` (a new chat claiming a waiting handoff), `handoff` (brief and open items) and `done` (summary, open items). The `done` rating was removed on 2026-11-15 (#35, schema 9).
 
 - **The calling chat is observed, never supplied.** Claude Code starts one MCP server per chat with `CLAUDE_CODE_SESSION_ID` in its environment; the server records it, its own working directory, and the tool (`claude-code` only when that variable is present, otherwise unknown). Without a chat id, `current` is always empty and the skills ask the developer instead; a note says so.
 - **Membership is decided at save time from the records alone** (`src/workSessions/resolve.ts`, pure), inside one `BEGIN IMMEDIATE` transaction: a `continuesFrom` joins that handoff's work session; otherwise the chat's own latest open work session; otherwise a new one, marked `startedImplicitly` unless the record is a `start`.

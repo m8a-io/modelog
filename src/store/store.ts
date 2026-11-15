@@ -13,8 +13,11 @@ import type { WorkRecord } from "../workSessions/records.ts";
  * 8 (2026-11-09): the `work_records` table (PRD §7.25: start, continue,
  * handoff, done) and a `meta` table holding this install's origin id. Also
  * not rebuildable.
+ *
+ * 9 (2026-11-15): `work_records.rating` removed (#35). The table is rebuilt to
+ * drop it, keeping every record's other fields.
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 /**
  * The storage contract. Deliberately narrow: nothing above this interface
