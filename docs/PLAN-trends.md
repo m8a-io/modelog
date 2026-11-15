@@ -57,6 +57,10 @@ Tips come from the agent, never from a list stored in Modelog. That division of 
 
 Each task records its findings in `docs/RESEARCH-trends.md` (new), measured against this machine as `RESEARCH-signals.md` was. Mark claims `[verified]` / `[untested]`.
 
+**Method (maintainer, 2026-11-15):** the candidate list starts from the **literature**: which
+kinds of data the field has found worth watching. This machine's data then tests each one. The
+local inventory (R1) adds what the logs offer beyond that. Recorded in `RESEARCH-trends.md` § L.
+
 ### R0 — Refresh the corpus
 
 Count again: real sessions, turns, active days, and how many sessions now have work-session records. Exclude the demo data. State n for every figure that follows.
