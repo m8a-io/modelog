@@ -21,7 +21,6 @@ import {
   sha256,
   skillBackupPath,
   skillPath,
-  skillUsers,
   type BundledSkill,
 } from "../src/cleanup/skills.ts";
 import { planCleanup, runCleanup } from "../src/cleanup/plan.ts";
@@ -167,31 +166,6 @@ test("a backup path already taken blocks the whole bundle, and nothing is writte
   assert.equal(readFileSync(skillBackupPath(home, "claude", "start"), "utf8"), "an older backup\n");
 });
 
-// --- who still uses a root ---------------------------------------------------
-
-test("the Claude root is in use while any project still carries a modelog entry", () => {
-  const home = tmpHome();
-  put(
-    join(home, ".claude.json"),
-    JSON.stringify({
-      projects: { "/a": { mcpServers: { modelog: {} } }, "/b": { mcpServers: { modelog: {} } }, "/c": {} },
-    }),
-  );
-  assert.deepEqual(skillUsers(home, "claude"), ["Claude Code in /a", "Claude Code in /b"]);
-  assert.deepEqual(skillUsers(home, "claude", { claudeProject: "/a" }), ["Claude Code in /b"]);
-});
-
-test("the agents root is in use by Codex, the Copilot CLI or Copilot Chat's flag", () => {
-  const home = tmpHome();
-  assert.deepEqual(skillUsers(home, "agents"), []);
-
-  put(join(home, ".codex", "config.toml"), "[mcp_servers.modelog]\ncommand = \"node\"\n");
-  updateFootprint(footprintPath(home), (c) => ({ ...c, copilotChatSkills: true }));
-  assert.deepEqual(skillUsers(home, "agents"), ["Codex", "GitHub Copilot Chat"]);
-  assert.deepEqual(skillUsers(home, "agents", { client: "codex" }), ["GitHub Copilot Chat"]);
-  assert.deepEqual(skillUsers(home, "agents", { client: "copilot-chat" }), ["Codex"]);
-});
-
 // --- footprint and cleanup ----------------------------------------------------
 
 test("clearing Copilot logging keeps the skill records (PLAN U2's fix)", () => {
@@ -206,11 +180,11 @@ test("clearing Copilot logging keeps the skill records (PLAN U2's fix)", () => {
   assert.equal(footprint?.skills?.length, 3);
 });
 
-test("cleanup removes the skills in both roots, is recommended, and clears Copilot Chat's flag", () => {
+test("cleanup removes the skills in both roots, is recommended, and clears the 0.9.0 Copilot Chat flag", () => {
   const home = tmpHome();
   install(home, "claude");
   install(home, "agents");
-  updateFootprint(footprintPath(home), (c) => ({ ...c, copilotChatSkills: true }));
+  updateFootprint(footprintPath(home), (c) => ({ ...c, copilotChatSkills: true}));
   writeFileSync(skillPath(home, "agents", "done"), "edited\n");
 
   const item = planCleanup({ home, platform: "linux", env: {} }).find((i) => i.id === "skills");

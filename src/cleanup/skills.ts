@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, rmdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { readClaudeConfig, writeFileAtomically } from "../mcp/claudeConfigFile.ts";
-import { hasModelogServer } from "../mcp/claudeConfig.ts";
-import { codexClient, copilotCliClient, isRegisteredInConfigFile } from "../mcp/cliRegistration.ts";
+import { writeFileAtomically } from "../mcp/claudeConfigFile.ts";
 import {
   footprintDir,
   footprintPath,
@@ -22,16 +20,14 @@ import {
  * **One bundle, two roots.** The same three `SKILL.md` files go to
  * `~/.claude/skills/<name>/` for Claude Code and to `~/.agents/skills/<name>/`
  * for Codex, the Copilot CLI and Copilot Chat (PRD §7.24's verified table).
- * They are installed by "Enable MCP Server", never by a command of their own.
+ * They are installed by `Modelog: Install Skills` and removed by `Modelog:
+ * Uninstall Skills`, and by nothing that touches the MCP registration: from
+ * 0.9.1 the two are independent.
  *
  * **Removed on every path, edited or not.** An edited copy still calls Modelog
  * tools that are gone after an uninstall, so the hash recorded at install only
  * decides whether the removal *mentions* an edit. A `SKILL.md` that was at the
  * path before Modelog's is set aside under `~/.modelog/backups/` and put back.
- *
- * **Shared roots.** Each root serves several registrations (every Claude Code
- * project; three agents for `~/.agents`). Disable removes a root's skills
- * only when {@link skillUsers} finds no registration left that uses them.
  *
  * Pure Node, no `vscode`: the uninstall hook runs this too.
  */
@@ -173,7 +169,7 @@ const ACTION_TEXT: Record<SkillAction, string> = {
   blocked: "a SKILL.md that isn't Modelog's is here, and its backup path is taken — nothing will be installed",
 };
 
-/** The skills half of an Enable confirmation. */
+/** The body of the Install Skills confirmation. */
 export function describeSkillInstall(home: string, target: SkillTarget, steps: SkillStep[]): string {
   const lines = steps.map((s) => {
     const backup = s.action === "back-up" || s.action === "blocked" ? `\n      backup: ${s.backup}` : "";
@@ -182,44 +178,9 @@ export function describeSkillInstall(home: string, target: SkillTarget, steps: S
   return (
     `Installs the /start, /handoff and /done skills into ${skillsRoot(home, target)}:\n\n` +
     lines.join("\n") +
-    "\n\nThey record your work sessions through this MCP server, and stop with a message when it isn't connected. " +
-    "Disable and uninstall remove them."
+    "\n\nThey record your work sessions through Modelog's MCP server, and stop with a message when it isn't connected. " +
+    "Modelog: Uninstall Skills removes them."
   );
-}
-
-// --- who still uses a root --------------------------------------------------
-
-export interface SkillUsersExcept {
-  /** The Claude Code project being disabled. */
-  claudeProject?: string;
-  /** The agent being disabled. */
-  client?: "codex" | "copilot-cli" | "copilot-chat";
-}
-
-/**
- * Which registrations still use a root, read from where each one lives: the
- * `modelog` entries in `~/.claude.json`, the Codex and Copilot CLI configs,
- * and the footprint flag for Copilot Chat, which has no config of its own.
- *
- * `except` lets a Disable dialog say beforehand what will happen; the caller
- * asks again after its own removal and acts on that answer.
- */
-export function skillUsers(home: string, target: SkillTarget, except: SkillUsersExcept = {}): string[] {
-  if (target === "claude") {
-    const read = readClaudeConfig(join(home, ".claude.json"));
-    if (read.status !== "ok") return [];
-    return Object.keys(read.config.projects ?? {})
-      .filter((p) => p !== except.claudeProject && hasModelogServer(read.config, p))
-      .map((p) => `Claude Code in ${p}`);
-  }
-
-  const users: string[] = [];
-  if (except.client !== "codex" && isRegisteredInConfigFile(codexClient(home))) users.push("Codex");
-  if (except.client !== "copilot-cli" && isRegisteredInConfigFile(copilotCliClient(home)))
-    users.push("GitHub Copilot CLI");
-  if (except.client !== "copilot-chat" && readFootprint(footprintPath(home))?.copilotChatSkills)
-    users.push("GitHub Copilot Chat");
-  return users;
 }
 
 /**

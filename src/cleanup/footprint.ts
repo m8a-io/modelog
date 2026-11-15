@@ -60,10 +60,9 @@ export interface Footprint {
   /** Modelog's installed `/start`, `/handoff` and `/done` skills, in both roots. */
   skills?: SkillRecord[];
   /**
-   * Copilot Chat's claim on `~/.agents/skills`. Codex and the Copilot CLI have
-   * a config entry that says they are enabled; Copilot Chat has none (MCP.md
-   * §7.4), so without this flag disabling Codex could not tell that Copilot
-   * Chat still uses the skills.
+   * Written by 0.9.0, which installed skills as a side effect of enabling the
+   * server and recorded Copilot Chat's use of them here. Nothing writes it
+   * now; it is still read so cleanup and Uninstall Skills can clear it.
    */
   copilotChatSkills?: true;
 }

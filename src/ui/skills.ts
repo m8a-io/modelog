@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
-import { footprintPath, readFootprint, type SkillTarget } from "../cleanup/footprint.ts";
+import { footprintPath, readFootprint, updateFootprint, type SkillTarget } from "../cleanup/footprint.ts";
 import {
   bundleHash,
   describeRemovals,
@@ -13,21 +13,20 @@ import {
   readBundledSkills,
   removeSkills,
   skillsRoot,
-  skillUsers,
   type SkillStep,
-  type SkillUsersExcept,
 } from "../cleanup/skills.ts";
 
 /**
- * The VS Code side of the skills installer: confirmation, and the messages.
- * Every decision is made in `cleanup/skills.ts`, which has no `vscode` import
- * and is shared with the uninstall hook.
+ * The VS Code side of the skills installer: the two palette commands, the
+ * confirmation and the messages. Every decision is made in
+ * `cleanup/skills.ts`, which has no `vscode` import and is shared with the
+ * uninstall hook.
  */
 
 export interface PreparedSkills {
   target: SkillTarget;
   steps: SkillStep[];
-  /** The skills half of the Enable confirmation. */
+  /** The body of the Install Skills confirmation. */
   detail: string;
   /** Nothing would be written. */
   unchanged: boolean;
@@ -46,7 +45,7 @@ export function prepareSkills(context: vscode.ExtensionContext, target: SkillTar
   if (blocked) {
     return (
       `${blocked.path} is not Modelog's, and its backup path ${blocked.backup} is already taken. ` +
-      "Move one of them aside, then enable again."
+      "Move one of them aside, then install again."
     );
   }
   return {
@@ -90,35 +89,11 @@ export function installPrepared(prepared: PreparedSkills): string {
     : `Installed /start, /handoff and /done in ${skillsRoot(homedir(), prepared.target)}.`;
 }
 
-/** The skills half of a Disable confirmation: what will happen to them, and why. */
-export function describeSkillsOnDisable(target: SkillTarget, except: SkillUsersExcept): string {
-  const home = homedir();
-  if (!hasInstalledSkills(home, target)) return "";
-  const users = skillUsers(home, target, except);
-  return users.length === 0
-    ? `\n\nAlso removes the /start, /handoff and /done skills from ${skillsRoot(home, target)}, edited or not. Nothing else uses them.`
-    : `\n\nThe /start, /handoff and /done skills stay in ${skillsRoot(home, target)}: still used by ${users.join(", ")}.`;
-}
-
-/**
- * Called after the registration is gone. Asks again rather than trusting the
- * dialog's answer, since a config can change while a modal is up.
- */
-export function removeSkillsIfUnused(target: SkillTarget): string {
-  const home = homedir();
-  if (!hasInstalledSkills(home, target) || skillUsers(home, target).length > 0) return "";
-  try {
-    return `\n${describeRemovals(removeSkills(home, [target]))}`;
-  } catch (e) {
-    return `\nCould not remove the skills in ${skillsRoot(home, target)}: ${e instanceof Error ? e.message : String(e)}`;
-  }
-}
-
 const NOTIFIED_KEY = "modelog.skillsUpdateNotifiedFor";
 
 /**
  * Once per release whose skills differ from the installed ones: say so, and
- * offer the same confirmation Enable shows. Installed skills are never
+ * offer the same confirmation Install Skills shows. Installed skills are never
  * rewritten without it, because they live outside Modelog's storage
  * (MCP.md §7.3).
  *
@@ -163,4 +138,90 @@ export async function notifyOutdatedSkills(context: vscode.ExtensionContext): Pr
     }
   }
   if (notes.length > 0) void vscode.window.showInformationMessage(`Modelog: ${notes.join(" ")}`);
+}
+
+// --- the palette commands ---------------------------------------------------
+
+const ROOT_LABELS: Record<SkillTarget, string> = {
+  claude: "Claude Code",
+  agents: "Codex, GitHub Copilot CLI and Copilot Chat",
+};
+
+function pickRoots(placeHolder: string, targets: SkillTarget[], preselect: (t: SkillTarget) => boolean) {
+  const home = homedir();
+  return vscode.window.showQuickPick(
+    targets.map((target) => ({
+      label: ROOT_LABELS[target],
+      description: skillsRoot(home, target),
+      picked: preselect(target),
+      target,
+    })),
+    { canPickMany: true, placeHolder },
+  );
+}
+
+/**
+ * `Modelog: Install Skills`, the only way the skills get installed. It touches
+ * no MCP registration: the two were tied together until 0.9.0 and that proved
+ * unreliable. The confirmation says the skills need the server enabled.
+ */
+export async function installSkillsCommand(context: vscode.ExtensionContext): Promise<void> {
+  const home = homedir();
+  const picked = await pickRoots(
+    "Install the /start, /handoff and /done skills for which tools?",
+    ["claude", "agents"],
+    (t) => t === "claude",
+  );
+  if (!picked || picked.length === 0) return;
+
+  const notes: string[] = [];
+  for (const { target } of picked) {
+    const prepared = prepareSkills(context, target);
+    if (typeof prepared === "string") {
+      notes.push(`${skillsRoot(home, target)}: not installed, because ${prepared}`);
+      continue;
+    }
+    if (!prepared.unchanged) {
+      const confirmed = await confirmWithSkills(
+        context,
+        `Modelog: install the work-session skills in ${skillsRoot(home, target)}?`,
+        prepared.detail,
+        "Install",
+      );
+      if (!confirmed) continue;
+    }
+    try {
+      notes.push(installPrepared(prepared));
+    } catch (e) {
+      notes.push(`${skillsRoot(home, target)}: install failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  if (notes.length > 0)
+    void vscode.window.showInformationMessage(
+      `Modelog: ${notes.join(" ")} They take effect in your next session, and need the Modelog MCP server enabled to record anything.`,
+    );
+}
+
+/** `Modelog: Uninstall Skills`: removes the chosen roots' skills, edited or not, and says which were edited. */
+export async function uninstallSkillsCommand(): Promise<void> {
+  const home = homedir();
+  const present = (["claude", "agents"] as const).filter((t) => hasInstalledSkills(home, t));
+  if (present.length === 0) {
+    void vscode.window.showInformationMessage("Modelog: no skills are installed.");
+    return;
+  }
+  const picked = await pickRoots("Remove the Modelog skills from which tools?", present, () => true);
+  if (!picked || picked.length === 0) return;
+
+  let detail: string;
+  try {
+    detail = describeRemovals(removeSkills(home, picked.map((p) => p.target)));
+  } catch (e) {
+    void vscode.window.showErrorMessage(`Modelog: removing the skills failed: ${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  // 0.9.0 recorded Copilot Chat's use of the agents root here; nothing reads it now.
+  if (picked.some((p) => p.target === "agents"))
+    updateFootprint(footprintPath(home), (current) => ({ ...current, copilotChatSkills: undefined }));
+  void vscode.window.showInformationMessage("Modelog: skills uninstalled.", { modal: true, detail });
 }
