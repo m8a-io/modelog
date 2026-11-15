@@ -1,6 +1,6 @@
 # Next Session — the recommendation loop (PRD §7.23 / §7.24)
 
-**Status:** specification written 2026-11-07; **step 1 complete 2026-11-07** (`RESEARCH-signals.md`); **stage 0 complete and design revised 2026-11-08** (see *Redesign* below). **Still no code.** Nothing in §7.23 or §7.24 is implemented, scoped, or estimated.
+**Status (2026-11-10): `/start`, `/handoff` and `/done` shipped in 0.9.0 — read "Where the last session left off" first.** Earlier: specification written 2026-11-07; **step 1 complete 2026-11-07** (`RESEARCH-signals.md`); **stage 0 complete and design revised 2026-11-08** (see *Redesign* below). *(As of 2026-11-08: still no code. Superseded: §7.24's commands and the work-session records are built; §7.23's recommendation loop and scoring are not.)*
 
 **Spec:** `PRD.md` §7.23 (the loop), §7.24 (shipping the commands), §7.22 (the closure record this builds on), §7.19 (the authorship rule). Where this document and the PRD disagree, **the PRD wins** — this is sequencing and session context, not requirements.
 
@@ -8,7 +8,29 @@
 
 ---
 
-## Where the last session left off
+## Where the last session left off — 0.9.0 published, 2026-11-10
+
+**0.9.0 ("Work sessions") is on the Marketplace**, published by the maintainer from `main` at `eb41751` (PR #31). It shipped `/start`, `/handoff` and `/done` (installed by Enable MCP Server), schema 8 with `work_records`, two MCP tools, and the Dashboard tabs (W10) with a records-only Work sessions list. Everything below this block is older context; the "NEXT SESSION — build `/done`" heading is history, since it is built.
+
+**Only `/done` was tested live before release** (maintainer's choice, short on time). The maintainer is testing 0.9.0 on a MacBook in Claude Code during the week of 2026-11-10 and reports back the following weekend. **Start the next session by asking for that report.** Until then, treat as unverified: the Install Skills / Uninstall Skills (0.9.1) and View Skill Files, the Update Skills notification, a populated Work sessions tab, and everything in Codex and Copilot.
+
+**On this WSL machine:** the dev test setup is gone (`.mcp.json` restored to the real store; the `.claude/skills/` copies removed). `~/.claude/skills/` does not exist yet, so `/start` is unavailable here until 0.9.1 is installed and **Modelog: Install Skills** is run, which is itself a test of the installer.
+
+**Open items from the work session's `/done`** (2026-11-10, rated by the maintainer; recorded only in a scratch store, so copied here):
+
+1. Maintainer's report from testing 0.9.0 on macOS: Enable/Disable dialogs, View Skill Files, Update Skills notice, a populated Work sessions tab.
+2. Decide the tool for Codex/Copilot records: MCP `clientInfo`, or work sessions for Claude Code only (0.9.0 ships the latter in effect; their records carry no tool or chat id).
+3. Later work session: Codex and Copilot testing of skill install and removal (see "Planned, deferred" below).
+4. Later release: the read-time chat link (§7.25), then per-work-session cost, turns, active time and context peaks on the Work sessions tab.
+5. W7: the open-work-session notice, with a deep link to the Work sessions tab.
+6. Still open in §7.25: showing the chat title (invariant 1); opening a chat from the Dashboard.
+7. 0.10.0: uninstall keeps the developer's records ("Uninstalling Modelog" below). 0.9.0's README and CHANGELOG say uninstall deletes them.
+8. Tag `v0.9.0` on `eb41751` if not yet pushed.
+
+---
+
+## Where an earlier session left off (2026-11-07)
+
 
 A long design conversation on 2026-11-06/07 that produced **documentation only**. All changes are in `docs/PRD.md` and were **uncommitted** at the time of writing:
 
@@ -61,7 +83,7 @@ The maintainer revised the design on 2026-11-08; the PRD carries it (§7.22's re
 - **Field caps:** summary ≤ 600 characters, ≤ 10 open items of ≤ 200, brief ≤ 1,500.
 - **Time frame** is derived when displayed, not stored, because the store may not have the chat yet at save time.
 - **The brief is returned as a typed field only**, never in notes or server instructions; a documented, narrow exception to `MCP.md` §4.2.
-- **Installer:** `/start`, `/handoff` and `/done` are installed **together, as one bundle** (maintainer, 2026-11-09; this replaced a pick list). Work-session tracking is central to what Modelog measures, so a developer who doesn't want it doesn't want Modelog. **Installed by "Enable MCP Server"** (maintainer, 2026-11-09): its existing confirmation (`MCP.md` §7.3) shows the MCP entry and the three skill files together, then writes both. Enabling for Claude Code writes `~/.claude/skills/`; enabling for Copilot or Codex writes `~/.agents/skills/`. Disable and uninstall remove them. No separate install command. **Built 2026-11-09 (step 3), as `MCP.md` §7.3's addendum records:** a set-aside `SKILL.md` lives in `~/.modelog/backups/skills/<claude|agents>/<name>/`; Disable removes a root's skills only when no other registration uses that root (maintainer, 2026-11-09); the footprint gained `skills` and `copilotChatSkills`, and U2's fix (clearing one field no longer deletes the file) is done.
+- **Installer:** `/start`, `/handoff` and `/done` are installed **together, as one bundle** (maintainer, 2026-11-09; this replaced a pick list). Work-session tracking is central to what Modelog measures, so a developer who doesn't want it doesn't want Modelog. **Installed by the palette command `Modelog: Install Skills`** (maintainer, 2026-11-15, 0.9.1; it first rode on "Enable MCP Server", 2026-11-09, which proved flaky across machines, so Enable and Disable no longer touch the skills at all). The command asks which root, shows the three skill files and writes them: `~/.claude/skills/` for Claude Code, `~/.agents/skills/` for Codex and Copilot. `Modelog: Uninstall Skills` and the uninstall hook remove them. **Built 2026-11-09 (step 3), as `MCP.md` §7.3's addendum records:** a set-aside `SKILL.md` lives in `~/.modelog/backups/skills/<claude|agents>/<name>/`; the footprint gained `skills`; 0.9.0's `copilotChatSkills` and "remove a root only when no registration uses it" rule went away in 0.9.1 with the coupling, and U2's fix (clearing one field no longer deletes the file) is done.
 - **Planned, deferred by the maintainer (2026-11-10): Codex and Copilot testing, in a later work session.** For Codex, the Copilot CLI and Copilot Chat, test live: Enable's skill install into `~/.agents/skills/`, a Disable that keeps the skills while another registration uses the root, the last Disable removing them, and Copilot Chat's *Remove Skills*. Also open, and needed before then: those tools' records carry **no tool and no chat id**, because `observeIdentity` (`src/workSessions/resolve.ts`) knows only `CLAUDE_CODE_SESSION_ID`, so W5 cannot hold for them. Two options: take the tool from MCP `clientInfo` (their names are unobserved), or ship 0.9.0's work sessions for Claude Code only. Until then, only Claude Code is tested.
 - **Uninstall removes Modelog's skills on every path**, silent hook included, edited or not; a `SKILL.md` that existed before install is restored from its backup. The "Uninstalling Modelog" section below (0.10.0) is revised to match.
 

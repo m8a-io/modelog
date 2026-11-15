@@ -26,14 +26,11 @@ import {
 } from "./mcp/cliRegistration.ts";
 import { findCopilotLogs } from "./ingest/copilot.ts";
 import { planCleanup, runCleanup } from "./cleanup/plan.ts";
-import { footprintPath, readFootprint, recordCopilotLogging, updateFootprint } from "./cleanup/footprint.ts";
+import { footprintPath, recordCopilotLogging } from "./cleanup/footprint.ts";
 import {
-  confirmWithSkills,
-  describeSkillsOnDisable,
-  installPrepared,
+  installSkillsCommand,
   notifyOutdatedSkills,
-  prepareSkills,
-  removeSkillsIfUnused,
+  uninstallSkillsCommand,
 } from "./ui/skills.ts";
 import { findSettingsFileWith, listProfiles, settingsCandidates } from "./cleanup/settings.ts";
 import {
@@ -121,6 +118,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       refreshAll();
       void vscode.window.showInformationMessage("Modelog: rescan complete.");
     }),
+    command("modelog.installSkills", () => installSkillsCommand(context)),
+    command("modelog.uninstallSkills", () => uninstallSkillsCommand()),
     command("modelog.exportData", async () => {
       const svc = requireService();
       const uri = await vscode.window.showSaveDialog({
@@ -521,24 +520,20 @@ async function enableMcpServer(
     return;
   }
 
-  const skills = prepareSkills(context, "claude");
-  if (typeof skills === "string") {
-    void vscode.window.showErrorMessage(`Modelog: nothing was written, because ${skills}`);
-    return;
-  }
-
   const verb = hasModelogServer(read.config, projectPath) ? "Replace" : "Write";
-  const confirmed = await confirmWithSkills(
-    context,
-    `Modelog: ${verb.toLowerCase()} the "modelog" MCP server entry in ${configPath}, and install its skills?`,
-    `This will be written under projects["${projectPath}"].mcpServers.modelog:\n\n` +
-      JSON.stringify(entry, null, 2) +
-      `\n\nA backup of the current file is saved to ${configPath}.bak first. Claude Code reads ` +
-      "this file at session start only, so the server appears in your next session here — not this one.\n\n" +
-      skills.detail,
+  const choice = await vscode.window.showInformationMessage(
+    `Modelog: ${verb.toLowerCase()} the "modelog" MCP server entry in ${configPath}?`,
+    {
+      modal: true,
+      detail:
+        `This will be written under projects["${projectPath}"].mcpServers.modelog:\n\n` +
+        JSON.stringify(entry, null, 2) +
+        `\n\nA backup of the current file is saved to ${configPath}.bak first. Claude Code reads ` +
+        "this file at session start only, so the server appears in your next session here — not this one.",
+    },
     verb,
   );
-  if (!confirmed) return;
+  if (choice !== verb) return;
 
   try {
     backupAndWriteClaudeConfig(configPath, next);
@@ -549,19 +544,9 @@ async function enableMcpServer(
     return;
   }
 
-  let skillsNote: string;
-  try {
-    skillsNote = installPrepared(skills);
-  } catch (e) {
-    void vscode.window.showErrorMessage(
-      `Modelog: wrote the MCP server entry to ${configPath}, but installing the skills failed: ` +
-        `${e instanceof Error ? e.message : String(e)}`,
-    );
-    return;
-  }
-
   void vscode.window.showInformationMessage(
-    `Modelog: wrote the MCP server entry to ${configPath}. ${skillsNote} Both appear next time you start a Claude Code session in this folder.`,
+    `Modelog: wrote the MCP server entry to ${configPath}. It appears next time you start a Claude Code session in this folder.` +
+      SKILLS_HINT,
   );
 }
 
@@ -593,9 +578,7 @@ async function disableMcpServer(): Promise<void> {
     `Modelog: remove the "modelog" MCP server entry from ${configPath}?`,
     {
       modal: true,
-      detail:
-        `A backup of the current file is saved to ${configPath}.bak first.` +
-        describeSkillsOnDisable("claude", { claudeProject: projectPath }),
+      detail: `A backup of the current file is saved to ${configPath}.bak first.`,
     },
     "Remove",
   );
@@ -610,14 +593,11 @@ async function disableMcpServer(): Promise<void> {
     return;
   }
 
-  showDisabled(`Modelog: removed from ${configPath}.`, removeSkillsIfUnused("claude"));
+  void vscode.window.showInformationMessage(`Modelog: removed from ${configPath}.`);
 }
 
-/** A removal that also took skills out lists each file, so an edited one is named. */
-function showDisabled(message: string, skillsNote: string): void {
-  if (skillsNote) void vscode.window.showInformationMessage(message, { modal: true, detail: skillsNote.trim() });
-  else void vscode.window.showInformationMessage(message);
-}
+/** The skills are separate from the server (0.9.1): said wherever a server is enabled, since the commands do nothing without them. */
+const SKILLS_HINT = ' For the /start, /handoff and /done commands, run "Modelog: Install Skills".';
 
 /** The "every other client" path (MCP.md §7.4): no target file is owned, so Modelog writes nothing — it hands the user the JSON and lets them place it. */
 async function copyMcpConfiguration(
@@ -717,34 +697,6 @@ async function enableMcpServerForVsCode(context: vscode.ExtensionContext): Promi
     return;
   }
 
-  // The one thing this path writes: the skills, into the root Copilot Chat
-  // reads (`~/.agents/skills`, PRD §7.24). The flag is Copilot Chat's claim on
-  // that root, since it has no config entry that says it is enabled.
-  const skills = prepareSkills(context, "agents");
-  if (typeof skills === "string") {
-    void vscode.window.showErrorMessage(`Modelog: the skills were not installed, because ${skills}`);
-    return;
-  }
-  if (!skills.unchanged) {
-    const INSTALL = "Install";
-    const confirmed = await confirmWithSkills(
-      context,
-      "Modelog: install the work-session skills for Copilot Chat?",
-      skills.detail,
-      INSTALL,
-    );
-    if (!confirmed) return;
-  }
-  try {
-    installPrepared(skills);
-    updateFootprint(footprintPath(homedir()), (current) => ({ ...current, copilotChatSkills: true }));
-  } catch (e) {
-    void vscode.window.showErrorMessage(
-      `Modelog: installing the skills failed: ${e instanceof Error ? e.message : String(e)}`,
-    );
-    return;
-  }
-
   didChangeMcpDefinitions?.fire();
 
   const OPEN = "Open MCP Servers";
@@ -772,34 +724,19 @@ async function enableMcpServerForVsCode(context: vscode.ExtensionContext): Promi
 
 async function explainVsCodeMcpIsNotConfigurable(): Promise<void> {
   const OPEN = "Open MCP Servers";
-  const REMOVE = "Remove Skills";
-  const claimed = readFootprint(footprintPath(homedir()))?.copilotChatSkills === true;
   const choice = await vscode.window.showInformationMessage(
-    claimed
-      ? "Modelog: the server registration can't be removed here; the skills can."
-      : "Modelog: there is nothing for Modelog to remove here.",
+    "Modelog: there is nothing for Modelog to remove here.",
     {
       modal: true,
       detail:
         "The VS Code registration is part of the extension itself, not a config file Modelog wrote, " +
         "so it cannot be taken back out from this side.\n\n" +
         "Stop or disable the \"Modelog\" server in VS Code's MCP servers list, or untick its tools in " +
-        "the Chat tool picker. Either stops Copilot Chat using it; neither affects the dashboard." +
-        (claimed
-          ? describeSkillsOnDisable("agents", { client: "copilot-chat" }).replace(/^\n\nAlso removes/, "\n\nRemove Skills removes")
-          : ""),
+        "the Chat tool picker. Either stops Copilot Chat using it; neither affects the dashboard.",
     },
-    ...(claimed ? [REMOVE, OPEN] : [OPEN]),
+    OPEN,
   );
   if (choice === OPEN) await openMcpServersView();
-  if (choice !== REMOVE) return;
-
-  updateFootprint(footprintPath(homedir()), (current) => ({ ...current, copilotChatSkills: undefined }));
-  const note = removeSkillsIfUnused("agents");
-  showDisabled(
-    note ? "Modelog: removed the skills for Copilot Chat." : "Modelog: Copilot Chat no longer keeps the skills installed.",
-    note || describeSkillsOnDisable("agents", {}),
-  );
 }
 
 /**
@@ -874,25 +811,21 @@ async function enableMcpServerViaCli(
   const steps =
     alreadyRegistered && !client.addReplaces ? [mcpRemoveArgs(), addArgs] : [addArgs];
 
-  const skills = prepareSkills(context, "agents");
-  if (typeof skills === "string") {
-    void vscode.window.showErrorMessage(`Modelog: nothing was changed, because ${skills}`);
-    return;
-  }
-
   const verb = alreadyRegistered ? "Replace" : "Register";
-  const confirmed = await confirmWithSkills(
-    context,
-    `Modelog: ${verb.toLowerCase()} the "modelog" MCP server in ${client.label}, and install its skills?`,
+  const choice = await vscode.window.showInformationMessage(
+    `Modelog: ${verb.toLowerCase()} the "modelog" MCP server in ${client.label}?`,
+    {
+      modal: true,
+      detail:
     `Modelog will run ${steps.length === 1 ? "this command" : "these commands"}:\n\n` +
       steps.map((args) => formatCommand(client.bin, args)).join("\n") +
       `\n\n${client.label} edits ${client.configPath} itself — Modelog does not write that file, ` +
       `so nothing else in it is touched. A backup is saved to ${client.configPath}.bak first.\n\n` +
-      `${client.label} reads this at session start, so the server appears in your next session — not a running one.\n\n` +
-      skills.detail,
+      `${client.label} reads this at session start, so the server appears in your next session — not a running one.`,
+    },
     verb,
   );
-  if (!confirmed) return;
+  if (choice !== verb) return;
 
   backupFile(client.configPath);
 
@@ -910,19 +843,9 @@ async function enableMcpServerViaCli(
     return;
   }
 
-  let skillsNote: string;
-  try {
-    skillsNote = installPrepared(skills);
-  } catch (e) {
-    void vscode.window.showErrorMessage(
-      `Modelog: registered with ${client.label}, but installing the skills failed: ` +
-        `${e instanceof Error ? e.message : String(e)}`,
-    );
-    return;
-  }
-
   void vscode.window.showInformationMessage(
-    `Modelog: registered with ${client.label} in ${client.configPath}. ${skillsNote} Both appear next time you start a ${client.label} session.`,
+    `Modelog: registered with ${client.label} in ${client.configPath}. It appears next time you start a ${client.label} session.` +
+      SKILLS_HINT,
   );
 }
 
@@ -951,8 +874,7 @@ async function disableMcpServerViaCli(client: CliClient): Promise<void> {
       detail:
         `Modelog will run:\n\n${formatCommand(client.bin, args)}\n\n` +
         `This removes only the "modelog" entry from ${client.configPath}; every other server stays. ` +
-        `A backup is saved to ${client.configPath}.bak first.` +
-        describeSkillsOnDisable("agents", { client: client.id === "codex" ? "codex" : "copilot-cli" }),
+        `A backup is saved to ${client.configPath}.bak first.`,
     },
     CONFIRM,
   );
@@ -969,7 +891,7 @@ async function disableMcpServerViaCli(client: CliClient): Promise<void> {
     return;
   }
 
-  showDisabled(`Modelog: removed from ${client.configPath}.`, removeSkillsIfUnused("agents"));
+  void vscode.window.showInformationMessage(`Modelog: removed from ${client.configPath}.`);
 }
 
 /** The §7.4 fallback, reached when a client's own CLI is not available to do the work. */
