@@ -16,7 +16,7 @@ import { openReadOnly } from "../src/mcp/readOnlyStore.ts";
 import { SCHEMA_VERSION } from "../src/store/store.ts";
 import { PRICING, RATE_TABLE } from "../src/mcp/rates.ts";
 import { makeStore, sqlite, BASE_TS } from "./fixture.ts";
-import { workSessionRows, formatDuration, LOST_AFTER_MS } from "../src/workSessions/dashboard.ts";
+import { workSessionRows, resumeTarget, formatDuration, OLD_AFTER_MS } from "../src/workSessions/dashboard.ts";
 
 /**
  * Work sessions (PRD §7.25): validation, which work session a record joins,
@@ -216,25 +216,27 @@ test("Dashboard: a closed chain shows its chats, handoffs, elapsed time and clos
   assert.equal(row.provenanceNote, "open items drafted by the agent");
 });
 
-test("Dashboard: an open work session turns lost after two days without a record — a label, nothing deleted", () => {
+test("Dashboard: an open work session turns old after 30 days without a record — a label, nothing deleted", () => {
   const rs: WorkRecord[] = [];
   apply(rs, HANDOFF, chat("A"), NOW, "h1");
-  const open = workSessionRows(rs, NOW + LOST_AFTER_MS, when)[0];
+  const open = workSessionRows(rs, NOW + OLD_AFTER_MS, when)[0];
   assert.equal(open.status, "open");
   assert.equal(open.startedImplicitly, true);
   assert.equal(open.openItemsHeading, "Open items at the last handoff");
   assert.equal(open.provenanceNote, "open items drafted by the agent");
-  const lost = workSessionRows(rs, NOW + LOST_AFTER_MS + 1, when)[0];
-  assert.equal(lost.status, "lost");
-  assert.equal(lost.timing, "last record 2 d ago");
+  assert.equal(open.statusLabel, "Open");
+  const old = workSessionRows(rs, NOW + OLD_AFTER_MS + 1, when)[0];
+  assert.equal(old.status, "old");
+  assert.equal(old.statusLabel, "Old, not done");
+  assert.equal(old.timing, "last record 30 d ago");
   assert.equal(rs.length, 1);
 });
 
-test("Dashboard: a closure after two idle days is marked closed late (W8)", () => {
+test("Dashboard: a closure after 30 idle days is marked closed late (W8)", () => {
   const rs: WorkRecord[] = [];
   apply(rs, { kind: "start", developerApproved: true }, chat("A"), NOW, "s1");
-  apply(rs, DONE, chat("A"), NOW + LOST_AFTER_MS + MIN, "d1");
-  const row = workSessionRows(rs, NOW + LOST_AFTER_MS + 2 * MIN, when)[0];
+  apply(rs, DONE, chat("A"), NOW + OLD_AFTER_MS + MIN, "d1");
+  const row = workSessionRows(rs, NOW + OLD_AFTER_MS + 2 * MIN, when)[0];
   assert.equal(row.status, "done");
   assert.equal(row.closedLate, true);
 });
@@ -247,6 +249,65 @@ test("Dashboard: newest work session first; the tool is never guessed", () => {
   assert.deepEqual(rows.map((r) => r.id), ["s2", "s1"]);
   assert.equal(rows[0].tool, "Tool not observed");
   assert.equal(rows[0].openItemsHeading, null);
+});
+
+test("Dashboard: a work session's chats are listed in order, the last one still open and resumable (W7)", () => {
+  const rs: WorkRecord[] = [];
+  apply(rs, { kind: "start", developerApproved: true }, chat("A"), NOW, "s1");
+  apply(rs, HANDOFF, chat("A"), NOW + MIN, "h1");
+  apply(rs, { kind: "continue", continuesFrom: "h1", developerApproved: true }, chat("B"), NOW + 2 * MIN, "c1");
+  const row = workSessionRows(rs, NOW + 3 * MIN, when)[0];
+  assert.deepEqual(
+    row.chatList.map((c) => c.label),
+    ["Chat 1 · started t+0 · handed off", "Chat 2 · started t+2 · still open"],
+  );
+  assert.equal(row.chats, 2);
+  assert.equal(row.canResume, true);
+  assert.equal(row.resumeNote, null);
+  assert.deepEqual(resumeTarget(rs, "s1"), { chatSessionId: "B", cwd: "/home/dev/project" });
+});
+
+test("Dashboard: an old work session can still be resumed — old is a label", () => {
+  const rs: WorkRecord[] = [];
+  apply(rs, { kind: "start", developerApproved: true }, chat("A"), NOW, "s1");
+  const row = workSessionRows(rs, NOW + OLD_AFTER_MS + 1, when)[0];
+  assert.equal(row.status, "old");
+  assert.equal(row.canResume, true);
+  assert.equal(resumeTarget(rs, "s1")?.chatSessionId, "A");
+});
+
+test("Dashboard: nothing to resume after a handoff nobody continued, and it says what to do", () => {
+  const rs: WorkRecord[] = [];
+  apply(rs, { kind: "start", developerApproved: true }, chat("A"), NOW, "s1");
+  apply(rs, HANDOFF, chat("A"), NOW + MIN, "h1");
+  const row = workSessionRows(rs, NOW + 2 * MIN, when)[0];
+  assert.equal(row.chatList[0]!.ended, "handoff");
+  assert.equal(row.canResume, false);
+  assert.match(row.resumeNote ?? "", /run \/start in a new chat/);
+  assert.equal(resumeTarget(rs, "s1"), null);
+});
+
+test("Dashboard: a done work session offers no Resume and no note", () => {
+  const rs: WorkRecord[] = [];
+  apply(rs, { kind: "start", developerApproved: true }, chat("A"), NOW, "s1");
+  apply(rs, DONE, chat("A"), NOW + MIN, "d1");
+  const row = workSessionRows(rs, NOW + 2 * MIN, when)[0];
+  assert.equal(row.chatList[0]!.ended, "done");
+  assert.equal(row.canResume, false);
+  assert.equal(row.resumeNote, null);
+  assert.equal(resumeTarget(rs, "s1"), null);
+});
+
+test("Dashboard: a chat whose id was not observed is never guessed for Resume", () => {
+  const rs: WorkRecord[] = [];
+  const unseen = { chatSessionId: null, chatSessionIdSource: null, cwd: null, source: null } as const;
+  apply(rs, { kind: "start", developerApproved: true }, unseen, NOW, "s1");
+  const row = workSessionRows(rs, NOW + MIN, when)[0];
+  assert.equal(row.chatList[0]!.ended, "open");
+  assert.equal(row.canResume, false);
+  assert.match(row.resumeNote ?? "", /not observed/);
+  assert.equal(resumeTarget(rs, "s1"), null);
+  assert.equal(resumeTarget(rs, "no-such-session"), null);
 });
 
 test("durations read as minutes, hours or days", () => {

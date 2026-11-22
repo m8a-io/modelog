@@ -150,7 +150,7 @@ function workSessionList(state: ViewState): HTMLElement {
   const ul = el("ul", "", "switches");
   for (const w of state.workSessions) {
     const li = el("li");
-    li.append(el("span", w.started, "when"), el("span", w.status, `pill status-${w.status}`));
+    li.append(el("span", w.started, "when"), el("span", w.statusLabel, `pill status-${w.status}`));
     const parts = [
       `${w.chats} chat${w.chats === 1 ? "" : "s"}`,
       `${w.handoffs} handoff${w.handoffs === 1 ? "" : "s"}`,
@@ -161,6 +161,19 @@ function workSessionList(state: ViewState): HTMLElement {
     if (w.startedImplicitly) li.append(el("span", "started without /start", "pill"));
     li.append(el("span", w.tool, "pill"));
     if (w.summary) li.append(el("div", w.summary, "statement"));
+    const chats = el("ol", "", "chats");
+    w.chatList.forEach((c, i) => {
+      const item = el("li", c.label);
+      // The still-open chat is the last one; the host decides whether it can be opened.
+      if (i === w.chatList.length - 1 && c.ended === "open" && w.canResume) {
+        const resume = el("button", "Resume", "resume");
+        resume.addEventListener("click", () => vscode.postMessage({ type: "resumeChat", workSessionId: w.id }));
+        item.append(resume);
+      }
+      chats.append(item);
+    });
+    li.append(chats);
+    if (w.resumeNote) li.append(el("div", w.resumeNote, "provenance"));
     if (w.openItemsHeading) {
       li.append(el("div", w.openItemsHeading, "provenance"));
       const items = el("ul", "", "open-items");

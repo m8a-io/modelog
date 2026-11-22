@@ -34,7 +34,7 @@ import type {
   DelegationSliceView,
   MarkedChangeView,
 } from "./ui/protocol.ts";
-import { workSessionRows } from "./workSessions/dashboard.ts";
+import { workSessionRows, resumeTarget, type ResumeTarget } from "./workSessions/dashboard.ts";
 import { signalDef, type DeclaredMarker } from "./markers/vocabulary.ts";
 import {
   detectBilling,
@@ -472,6 +472,11 @@ export class ModelogService {
   markedChange(id: string): MarkedChangeView | undefined {
     const m = this.store.allMarkers().find((x) => x.id === id);
     return m ? markedChangeView(m) : undefined;
+  }
+
+  /** The still-open chat of a work session, if Resume can open it (PRD §7.25 W7). */
+  resumeTarget(workSessionId: string): ResumeTarget | null {
+    return resumeTarget(this.store.allWorkRecords(), workSessionId);
   }
 
   /** Deletes one marked change. Called only after the developer confirmed in the Dashboard. */
