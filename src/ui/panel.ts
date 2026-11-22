@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { HostMessage, WebviewMessage } from "./protocol.ts";
 import type { ModelogService } from "../service.ts";
+import { resumeChat } from "./resumeChat.ts";
 
 /**
  * Owns the dashboard webview panel: one at a time, revealed if already open.
@@ -82,6 +83,9 @@ export class DashboardPanel {
         return;
       case "removeMarker":
         void this.confirmRemoveMarker(msg.id);
+        return;
+      case "resumeChat":
+        void resumeChat(this.service.resumeTarget(msg.workSessionId));
         return;
     }
   }

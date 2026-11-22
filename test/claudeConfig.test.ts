@@ -7,11 +7,12 @@ import {
   withModelogServer,
   withoutModelogServer,
   hasModelogServer,
+  projectsWithModelogServer,
   type ClaudeConfig,
   type McpServerEntry,
 } from "../src/mcp/claudeConfig.ts";
 import { readClaudeConfig, backupAndWriteClaudeConfig } from "../src/mcp/claudeConfigFile.ts";
-import { isNodeOnPath } from "../src/mcp/nodeOnPath.ts";
+import { isNodeOnPath, checkNode, classifyNodeVersion, nodeProblemMessage } from "../src/mcp/nodeOnPath.ts";
 
 const ENTRY: McpServerEntry = {
   command: "node",
@@ -41,65 +42,95 @@ function configWithRealWorldShape(): ClaudeConfig {
   };
 }
 
-test("withModelogServer adds the entry and touches nothing else", () => {
+test("withModelogServer writes at user scope and touches nothing else", () => {
   const before = configWithRealWorldShape();
-  const after = withModelogServer(before, "/home/user/modelog", ENTRY);
+  const { config: after, migratedFrom } = withModelogServer(before, ENTRY);
 
-  assert.ok(after);
-  assert.deepEqual(after.projects!["/home/user/modelog"].mcpServers, {
-    github: { command: "gh-mcp", args: [] },
-    modelog: ENTRY,
-  });
-  // Sibling project and top-level credential-bearing keys are identical.
-  assert.deepEqual(after.projects!["/home/user/other-project"], before.projects!["/home/user/other-project"]);
+  assert.deepEqual(after.mcpServers, { modelog: ENTRY });
+  assert.deepEqual(migratedFrom, []);
+  // Projects and top-level credential-bearing keys are identical.
+  assert.deepEqual(after.projects, before.projects);
   assert.equal(after.oauthAccount, before.oauthAccount);
   assert.equal(after.primaryApiKey, before.primaryApiKey);
   // The original is not mutated.
-  assert.equal(before.projects!["/home/user/modelog"].mcpServers!.modelog, undefined);
+  assert.equal(before.mcpServers, undefined);
 });
 
-test("withModelogServer replaces an existing modelog entry rather than duplicating it", () => {
-  const before = withModelogServer(configWithRealWorldShape(), "/home/user/modelog", ENTRY)!;
+/** Issue #39: Claude Code creates project entries lazily, so an IDE-only install can have none. */
+test("withModelogServer works when the config has no projects key at all", () => {
+  const before: ClaudeConfig = { oauthAccount: { id: "keep" }, userID: "u" };
+  const { config: after } = withModelogServer(before, ENTRY);
+
+  assert.deepEqual(after, { oauthAccount: { id: "keep" }, userID: "u", mcpServers: { modelog: ENTRY } });
+  assert.equal("projects" in after, false, "must not invent a projects key");
+});
+
+/**
+ * Issue #39: the old code registered for workspaceFolders[0], which is the
+ * wrong folder in a multi-root workspace whose project is not first. At user
+ * scope there is no folder to pick, so the result cannot depend on one.
+ */
+test("withModelogServer takes no folder, so a multi-root workspace cannot pick the wrong one", () => {
+  assert.equal(withModelogServer.length, 2);
+  const { config } = withModelogServer(configWithRealWorldShape(), ENTRY);
+  assert.deepEqual(projectsWithModelogServer(config), []);
+  assert.equal(hasModelogServer(config), true);
+});
+
+test("withModelogServer keeps sibling user-scope servers and replaces an existing modelog entry", () => {
+  const before: ClaudeConfig = { mcpServers: { github: { command: "gh-mcp" }, modelog: { command: "old" } } };
   const newEntry: McpServerEntry = { command: "node", args: ["/repo/dist/v2.mjs"] };
-  const after = withModelogServer(before, "/home/user/modelog", newEntry);
+  const { config: after } = withModelogServer(before, newEntry);
 
-  assert.deepEqual(after!.projects!["/home/user/modelog"].mcpServers, {
-    github: { command: "gh-mcp", args: [] },
-    modelog: newEntry,
-  });
+  assert.deepEqual(after.mcpServers, { github: { command: "gh-mcp" }, modelog: newEntry });
 });
 
-test("withModelogServer returns null for a project Claude Code has never opened", () => {
-  const config = configWithRealWorldShape();
-  assert.equal(withModelogServer(config, "/home/user/never-opened", ENTRY), null);
+/** Claude Code merges {...user, ...project, ...local}: a legacy per-project entry would shadow the new one. */
+test("withModelogServer removes legacy per-project entries, keeping their sibling servers", () => {
+  const before = configWithRealWorldShape();
+  before.projects!["/home/user/modelog"].mcpServers!.modelog = { command: "node", args: ["/stale.mjs"] };
+
+  const { config: after, migratedFrom } = withModelogServer(before, ENTRY);
+
+  assert.deepEqual(migratedFrom, ["/home/user/modelog"]);
+  assert.deepEqual(after.projects!["/home/user/modelog"].mcpServers, { github: { command: "gh-mcp", args: [] } });
+  assert.equal(after.projects!["/home/user/modelog"].hasTrustDialogAccepted, true);
+  assert.deepEqual(after.projects!["/home/user/other-project"], before.projects!["/home/user/other-project"]);
 });
 
-test("withoutModelogServer removes only modelog, keeping sibling servers", () => {
-  const withIt = withModelogServer(configWithRealWorldShape(), "/home/user/modelog", ENTRY)!;
-  const after = withoutModelogServer(withIt, "/home/user/modelog");
+test("withoutModelogServer removes the user-scope entry and legacy ones, keeping siblings", () => {
+  const legacy = configWithRealWorldShape();
+  legacy.projects!["/home/user/modelog"].mcpServers!.modelog = { command: "node" };
+  const withIt: ClaudeConfig = { ...legacy, mcpServers: { modelog: ENTRY, github: { command: "gh-mcp" } } };
 
-  assert.deepEqual(after.projects!["/home/user/modelog"].mcpServers, {
-    github: { command: "gh-mcp", args: [] },
-  });
+  const { config: after, removedUser, removedFrom } = withoutModelogServer(withIt);
+
+  assert.equal(removedUser, true);
+  assert.deepEqual(removedFrom, ["/home/user/modelog"]);
+  assert.deepEqual(after.mcpServers, { github: { command: "gh-mcp" } });
+  assert.deepEqual(after.projects!["/home/user/modelog"].mcpServers, { github: { command: "gh-mcp", args: [] } });
+  assert.equal(after.primaryApiKey, withIt.primaryApiKey);
 });
 
 test("withoutModelogServer is a no-op, same reference, when modelog was never registered", () => {
   const config = configWithRealWorldShape();
-  const after = withoutModelogServer(config, "/home/user/modelog");
-  assert.equal(after, config);
+  const result = withoutModelogServer(config);
+  assert.equal(result.config, config);
+  assert.equal(result.removedUser, false);
+  assert.deepEqual(result.removedFrom, []);
 });
 
-test("withoutModelogServer on an unknown project returns the config unchanged", () => {
-  const config = configWithRealWorldShape();
-  const after = withoutModelogServer(config, "/home/user/never-opened");
-  assert.equal(after, config);
+test("withoutModelogServer works on a config with neither mcpServers nor projects", () => {
+  const config: ClaudeConfig = { userID: "u" };
+  assert.equal(withoutModelogServer(config).config, config);
 });
 
-test("hasModelogServer reports presence correctly", () => {
+test("hasModelogServer reports user-scope presence only", () => {
   const config = configWithRealWorldShape();
-  assert.equal(hasModelogServer(config, "/home/user/modelog"), false);
-  const withIt = withModelogServer(config, "/home/user/modelog", ENTRY)!;
-  assert.equal(hasModelogServer(withIt, "/home/user/modelog"), true);
+  assert.equal(hasModelogServer(config), false);
+  config.projects!["/home/user/modelog"].mcpServers!.modelog = { command: "node" };
+  assert.equal(hasModelogServer(config), false, "a legacy per-project entry is not a user-scope registration");
+  assert.equal(hasModelogServer(withModelogServer(config, ENTRY).config), true);
 });
 
 function tmpDir(): string {
@@ -129,7 +160,7 @@ test("backupAndWriteClaudeConfig writes a .bak before overwriting the original",
   const original = configWithRealWorldShape();
   writeFileSync(path, JSON.stringify(original));
 
-  const updated = withModelogServer(original, "/home/user/modelog", ENTRY)!;
+  const updated = withModelogServer(original, ENTRY).config;
   backupAndWriteClaudeConfig(path, updated);
 
   assert.equal(existsSync(`${path}.bak`), true);
@@ -153,4 +184,28 @@ test("isNodeOnPath is true against a PATH that actually contains node", () => {
 
 test("isNodeOnPath is false when PATH cannot resolve node", () => {
   assert.equal(isNodeOnPath({ PATH: "" }), false);
+});
+
+test("classifyNodeVersion accepts Node 24+ and refuses older or unparseable versions", () => {
+  assert.deepEqual(classifyNodeVersion("v24.18.0"), { status: "ok", version: "v24.18.0" });
+  assert.deepEqual(classifyNodeVersion("v25.1.0"), { status: "ok", version: "v25.1.0" });
+  assert.deepEqual(classifyNodeVersion("v20.11.1"), { status: "too-old", version: "v20.11.1" });
+  assert.deepEqual(classifyNodeVersion("garbage"), { status: "too-old", version: "garbage" });
+});
+
+test("checkNode reports missing when PATH cannot resolve node", () => {
+  assert.deepEqual(checkNode({ PATH: "" }), { status: "missing" });
+});
+
+/** Issue #39: the extension host never sources shell rc files; the message must say so and show the PATH to fix. */
+test("nodeProblemMessage explains the shell-rc trap and shows the extension host PATH", () => {
+  const missing = nodeProblemMessage({ status: "missing" }, "Claude Code", "/usr/bin:/home/u/.local/bin");
+  assert.match(missing, /not found/);
+  assert.match(missing, /~\/\.zshrc/);
+  assert.match(missing, /\/usr\/bin:\/home\/u\/\.local\/bin/);
+  assert.match(missing, /Claude Code/);
+
+  const old = nodeProblemMessage({ status: "too-old", version: "v20.1.0" }, "Codex", "/usr/bin");
+  assert.match(old, /v20\.1\.0/);
+  assert.match(old, /Node 24 or later/);
 });

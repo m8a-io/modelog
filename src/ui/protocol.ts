@@ -19,7 +19,12 @@ export type WebviewMessage =
   | { type: "setSource"; source: string }
   | { type: "rescan" }
   /** Asks the host to remove one marked change. The host confirms with the developer first. */
-  | { type: "removeMarker"; id: string };
+  | { type: "removeMarker"; id: string }
+  /**
+   * Asks the host to open a work session's still-open chat. Names the work
+   * session only: the host looks the chat up in its own store.
+   */
+  | { type: "resumeChat"; workSessionId: string };
 
 export interface ModelRowView {
   model: string;

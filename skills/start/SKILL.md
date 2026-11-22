@@ -22,14 +22,16 @@ If any Modelog tool returns an error starting "Not saved.", stop, show that mess
 
 Call `modelog_get_work_sessions`. Its `waiting` list holds handoffs from this workspace and this tool that no chat has continued yet.
 
-## 2. Ask one question
+## 2. Ask one question, only if a handoff is waiting
 
-Ask: *"Continue a handed-off work session, or start a new one?"*
+If `waiting` is empty, do not ask anything: there is nothing to continue, so the answer can only be a new work session. Go straight to step 3 with **New work session**.
+
+Otherwise ask: *"Continue a handed-off work session, or start a new one?"*
 
 - One option per waiting handoff, labelled with its time and the first words of its brief.
 - One option: **New work session**.
 
-Ask even when there is only one option. If there are more waiting handoffs than your question tool can show, list the newest ones and let the developer type an answer for the others.
+Ask even when only one handoff is waiting: which work session this chat joins is never guessed. If there are more waiting handoffs than your question tool can show, list the newest ones and let the developer type an answer for the others.
 
 ## 3. Save
 

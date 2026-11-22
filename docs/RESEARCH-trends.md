@@ -217,6 +217,21 @@ anywhere, and they're flagged because the extension can't read them (invariant 1
   question *Discuss with AI* would ask: "did you change this on purpose?" Its effect has to be
   separated from the model change of the same period (`claude-opus-5` → `claude-opus-5-5`) before
   R3 can write its sentence. `[verified]` for the switch; effect `[untested]`.
+
+  **Answered 2026-11-15 (maintainer): not a deliberate change.** Scott doesn't remember making
+  it; most likely the setting fell back to its default and was never set back to `high`. That
+  changes what the event is for:
+  - **As an aha candidate it gets stronger, not weaker.** The developer didn't know about the
+    change until the log showed it, which is exactly what the "aha" test asks for. The sentence
+    is a question, not a verdict: *"Since 7 Nov every message has run at medium effort, before
+    that at high. You haven't marked this change. Did you make it on purpose?"*
+  - **As a before-and-after it measures a setting, not a decision.** Its effect is still worth
+    measuring, but it can't be read as "the developer chose medium and this happened". Same
+    confound as before: the model changed in the same period.
+  - **This suggests a class of its own: unnoticed drift.** A setting (effort, model, permission
+    mode) that changes with no marker and no change in git. Modelog notices it and asks. This
+    needs no catalogue of good practice (§7.23), because the question is only "was this
+    intended?" Goes to R3 with this case as its first instance.
 - **Lines added/removed and PR links per session:** structural, present from 2026-11-07. These
   are the cheapest outcome proxies available without a git reader, so they go to R4.
 

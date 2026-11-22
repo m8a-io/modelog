@@ -2,6 +2,23 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] — Resume your chats; MCP in every folder
+
+### Added
+
+- **Resume a work session's open chat from the Dashboard.** The Work sessions tab now lists each work session's chats in order, and the chat that is still open has a **Resume** button, which reopens it in Claude Code with its history. Claude Code can only resume a chat in a window that has the chat's folder open, so if this window doesn't, Modelog offers to open the folder in a new window. If Claude Code's command isn't available, it copies the chat id instead.
+
+### Changed
+
+- **An idle work session is "Old, not done" after 30 days, instead of "Lost" after 2.** Waiting days for a client is normal work, not a lost session. Nothing is deleted either way. Chat titles are no longer shown.
+- **`/start` asks nothing when no handoff is waiting.** With nothing to continue, the only possible answer is a new work session, so it starts one straight away. When handoffs are waiting, it still asks, so a continuation is never guessed. Reinstall the skills (`Modelog: Install Skills`) to get the new `/start`.
+
+### Fixed
+
+- **Enable MCP Server (Claude Code) works on any install, in any folder (#39).** It used to refuse with "not yet a project Claude Code knows about" even while a Claude Code session was open in the folder: it wrote a per-folder entry and needed Claude Code to have one already, which Claude Code creates only lazily, so an install used through the VS Code extension alone may have none. Modelog now registers at user scope, the top-level `mcpServers` in `~/.claude.json`, which Claude Code uses in every folder. It needs no open folder, never touches a repository, and can't pick the wrong folder in a multi-root workspace. Enable removes per-folder entries left by earlier versions, which would otherwise override the new one, and Disable now removes the registration everywhere.
+- **Enable and Disable (Claude Code) offer a Reload Window button.** Claude Code reads its MCP config once per window, so a new chat in the same window doesn't pick up the change; the message now says so and the button does the reload.
+- **A clear message when `node` can't run the server.** Enable now also refuses a `node` older than 24, which used to pass the check and then fail silently. The message explains that the extension host doesn't read `~/.zshrc` or `~/.bashrc`, shows the `PATH` it does see, and suggests how to link `node` into it. This applies to all three Enable commands that register `node`: Claude Code, Codex and Copilot CLI.
+
 ## [0.9.2] — No more ratings
 
 ### Removed

@@ -260,8 +260,21 @@ tbody tr:hover { background: var(--vscode-list-hoverBackground); }
 
 .work-sessions .switches li { flex-wrap: wrap; }
 .work-sessions .pill { margin-left: 0; }
-.work-sessions .status-lost { border-color: var(--vscode-charts-orange); color: var(--vscode-foreground); }
+.work-sessions .status-old { border-color: var(--vscode-charts-orange); color: var(--vscode-foreground); }
 .work-sessions .status-open { border-color: var(--vscode-charts-blue); color: var(--vscode-foreground); }
+.work-sessions .chats {
+  flex-basis: 100%; margin: .2rem 0 0; padding-left: 1.25rem; font-size: .92em;
+}
+.work-sessions .chats li { display: list-item; padding: .1rem 0; border: 0; }
+.work-sessions .resume {
+  margin-left: .6rem; font-family: inherit; font-size: .9em; cursor: pointer;
+  padding: .1rem .6rem; border-radius: 3px;
+  border: 1px solid var(--vscode-button-background);
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+.work-sessions .resume:hover { background: var(--vscode-button-hoverBackground); }
+.work-sessions .resume:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
 .work-sessions .open-items {
   flex-basis: 100%; margin: 0; padding-left: 1.25rem; font-size: .92em;
 }
