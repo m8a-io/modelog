@@ -2,7 +2,16 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.10.0] — Resume your chats; MCP in every folder
+
+### Added
+
+- **Resume a work session's open chat from the Dashboard.** The Work sessions tab now lists each work session's chats in order, and the chat that is still open has a **Resume** button, which reopens it in Claude Code with its history. Claude Code can only resume a chat in a window that has the chat's folder open, so if this window doesn't, Modelog offers to open the folder in a new window. If Claude Code's command isn't available, it copies the chat id instead.
+
+### Changed
+
+- **An idle work session is "Old, not done" after 30 days, instead of "Lost" after 2.** Waiting days for a client is normal work, not a lost session. Nothing is deleted either way. Chat titles are no longer shown.
+- **`/start` asks nothing when no handoff is waiting.** With nothing to continue, the only possible answer is a new work session, so it starts one straight away. When handoffs are waiting, it still asks, so a continuation is never guessed. Reinstall the skills (`Modelog: Install Skills`) to get the new `/start`.
 
 ### Fixed
 
