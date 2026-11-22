@@ -18,7 +18,7 @@ import {
   withSettingDisabled,
   COPILOT_LOGGING_SETTING,
 } from "../src/cleanup/settings.ts";
-import { withoutModelogServerEverywhere } from "../src/mcp/claudeConfig.ts";
+import { withoutModelogServer } from "../src/mcp/claudeConfig.ts";
 import { planCleanup, runCleanup } from "../src/cleanup/plan.ts";
 
 function tmpHome(): string {
@@ -179,7 +179,8 @@ test("cleanup removes the Claude Code entry from every project, not just one", (
     },
   };
 
-  const { config: next, removedFrom } = withoutModelogServerEverywhere(config);
+  const { config: next, removedFrom, removedUser } = withoutModelogServer(config);
+  assert.equal(removedUser, false);
 
   const projects = next.projects ?? {};
   assert.deepEqual(removedFrom.sort(), ["/a", "/b"]);
@@ -191,7 +192,7 @@ test("cleanup removes the Claude Code entry from every project, not just one", (
 
 test("a config with nothing to remove comes back as the same object", () => {
   const config = { projects: { "/c": { mcpServers: { other: {} } } } };
-  const result = withoutModelogServerEverywhere(config);
+  const result = withoutModelogServer(config);
   assert.equal(result.config, config);
   assert.deepEqual(result.removedFrom, []);
 });
@@ -251,12 +252,13 @@ test("an unlocatable settings file fails loudly and names the key to change by h
   assert.match(result.outcome.note, new RegExp(COPILOT_LOGGING_SETTING.replaceAll(".", "\\.")));
 });
 
-test("the Claude Code entry is planned, backed up, and removed from every project", () => {
+test("the Claude Code entry is planned, backed up, and removed at user scope and from every project", () => {
   const home = tmpHome();
   writeFileSync(
     join(home, ".claude.json"),
     JSON.stringify({
       primaryApiKey: "keep",
+      mcpServers: { modelog: {}, other: {} },
       projects: { "/a": { mcpServers: { modelog: {}, other: {} } }, "/b": { mcpServers: { modelog: {} } } },
     }),
   );
@@ -268,6 +270,7 @@ test("the Claude Code entry is planned, backed up, and removed from every projec
 
   const after = JSON.parse(readFileSync(join(home, ".claude.json"), "utf8"));
   assert.equal(after.primaryApiKey, "keep");
+  assert.deepEqual(after.mcpServers, { other: {} });
   assert.deepEqual(after.projects["/a"].mcpServers, { other: {} });
   assert.deepEqual(after.projects["/b"].mcpServers, {});
   assert.equal(existsSync(join(home, ".claude.json.bak")), true);

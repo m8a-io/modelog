@@ -2,6 +2,14 @@
 
 All notable changes to Modelog are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Enable MCP Server (Claude Code) works on any install, in any folder (#39).** It used to refuse with "not yet a project Claude Code knows about" even while a Claude Code session was open in the folder: it wrote a per-folder entry and needed Claude Code to have one already, which Claude Code creates only lazily, so an install used through the VS Code extension alone may have none. Modelog now registers at user scope, the top-level `mcpServers` in `~/.claude.json`, which Claude Code uses in every folder. It needs no open folder, never touches a repository, and can't pick the wrong folder in a multi-root workspace. Enable removes per-folder entries left by earlier versions, which would otherwise override the new one, and Disable now removes the registration everywhere.
+- **Enable and Disable (Claude Code) offer a Reload Window button.** Claude Code reads its MCP config once per window, so a new chat in the same window doesn't pick up the change; the message now says so and the button does the reload.
+- **A clear message when `node` can't run the server.** Enable now also refuses a `node` older than 24, which used to pass the check and then fail silently. The message explains that the extension host doesn't read `~/.zshrc` or `~/.bashrc`, shows the `PATH` it does see, and suggests how to link `node` into it. This applies to all three Enable commands that register `node`: Claude Code, Codex and Copilot CLI.
+
 ## [0.9.2] — No more ratings
 
 ### Removed

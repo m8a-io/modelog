@@ -5,7 +5,7 @@ import {
   backupAndWriteClaudeConfig,
   writeFileAtomically,
 } from "../mcp/claudeConfigFile.ts";
-import { withoutModelogServerEverywhere } from "../mcp/claudeConfig.ts";
+import { withoutModelogServer, type ModelogRemoval } from "../mcp/claudeConfig.ts";
 import {
   codexClient,
   copilotCliClient,
@@ -174,13 +174,13 @@ function claudeCodeMcpItem(ctx: CleanupContext): CleanupItem | undefined {
   const read = readClaudeConfig(path);
   if (read.status !== "ok") return undefined;
 
-  const { removedFrom } = withoutModelogServerEverywhere(read.config);
-  if (removedFrom.length === 0) return undefined;
+  const probe = withoutModelogServer(read.config);
+  if (!probe.removedUser && probe.removedFrom.length === 0) return undefined;
 
   return {
     id: "claude-code-mcp",
     label: "Remove the MCP entry from Claude Code",
-    detail: `Removes "modelog" from ${removedFrom.length} project${removedFrom.length === 1 ? "" : "s"} in ${path}. Every other server stays.`,
+    detail: `Removes "modelog" ${removalScope(probe)} in ${path}. Every other server stays.`,
     recommended: true,
     run(): Outcome {
       // Re-read rather than reuse the probe's parse: the command shows a
@@ -188,13 +188,23 @@ function claudeCodeMcpItem(ctx: CleanupContext): CleanupItem | undefined {
       const current = readClaudeConfig(path);
       if (current.status !== "ok") return { status: "failed", note: `${path} is no longer readable.` };
 
-      const next = withoutModelogServerEverywhere(current.config);
-      if (next.removedFrom.length === 0) return { status: "nothing", note: "Already removed." };
+      const next = withoutModelogServer(current.config);
+      if (!next.removedUser && next.removedFrom.length === 0) return { status: "nothing", note: "Already removed." };
 
       backupAndWriteClaudeConfig(path, next.config);
-      return { status: "done", note: `Removed from ${next.removedFrom.length} project(s) in ${path}.` };
+      return { status: "done", note: `Removed ${removalScope(next)} in ${path}.` };
     },
   };
+}
+
+/** "at user scope", "from 2 projects", or both: the user-scope entry plus any legacy per-project ones (claudeConfig.ts). */
+function removalScope(removal: ModelogRemoval): string {
+  const n = removal.removedFrom.length;
+  const parts = [
+    ...(removal.removedUser ? ["at user scope"] : []),
+    ...(n > 0 ? [`from ${n} project${n === 1 ? "" : "s"}`] : []),
+  ];
+  return parts.join(" and ");
 }
 
 /**

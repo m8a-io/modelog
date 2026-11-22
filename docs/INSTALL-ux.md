@@ -58,7 +58,7 @@ The single biggest correction to the original Phase 3 plan. "Register the MCP se
 
 | | **Target A — VS Code's own MCP client** | **Target B — Claude Code** |
 | :--- | :--- | :--- |
-| Mechanism | `vscode.lm.registerMcpServerDefinitionProvider` | Write `.mcp.json` / `~/.claude.json` |
+| Mechanism | `vscode.lm.registerMcpServerDefinitionProvider` | Write `~/.claude.json` at user scope (top-level `mcpServers`) |
 | Config files touched | **None** | The client's, outside Modelog's storage |
 | Lifecycle owner | VS Code | Claude Code |
 | Takes effect | On provider registration | **The user's next session** (see `PLAN-part2.md` 2.0) |
@@ -95,8 +95,11 @@ Three properties of this path matter:
 Unchanged from the original Phase 3 plan, and still required, because VS Code's provider API does not feed Claude Code. It reads its own configuration, at session start only. Therefore:
 
 - After writing config, Modelog **must not** report that the server is connected, and must not poll for it to appear. The correct message names the user's *next* session.
+- **[verified, maintainer, 2026-11-22]** In the Claude Code VS Code extension, "next session" means the next **window**: after Enable, a new chat in the same window still lacked the server until the window was reloaded. Enable and Disable therefore offer a *Reload Window* button, as the skills install already does. It's a button, not an automatic reload, because reloading ends any running chat (#39).
 - The `node`-on-`PATH` check stays load-bearing here, since this path cannot use `process.execPath`.
 - `MCP.md` §7.3's requirement — show the exact JSON and target file, confirm, back up, write — applies to this target only.
+- **[verified in the bundled CLI, live session untested]** The entry goes in at user scope, so it needs no open folder and no `projects` entry, and never touches a repository (#39, `MCP.md` §7.3). Claude Code for VS Code runs the same CLI binary as the terminal `claude` (`resources/native-binary/claude`), so the two read this file the same way.
+- **[verified]** Claude Code creates `projects[<path>]` lazily, only when a per-project setting first changes from its default. A missing entry means "all defaults" to it, not "unknown folder". An install used only through the IDE extension can therefore have no `projects` key at all, which is why the earlier per-project registration failed (#39).
 
 ---
 

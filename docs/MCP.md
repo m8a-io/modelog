@@ -121,6 +121,8 @@ VS Code installs extensions into a **version-stamped** directory, so any config 
 
 The registered command invokes `node`. If no `node` is on `PATH`, registration **fails at enable time with a clear message** naming the problem. Modelog must not silently reach for VS Code's internal Node binary, whose path changes with every VS Code release.
 
+> **Tightened 2026-11-22 (#39).** "On `PATH`" now means *a Node 24+ binary on the extension host's `PATH`*. The server imports `node:sqlite`, so an older system `node` used to pass the check and then fail silently at the client's next session start. The message also names the trap behind most failures: the extension host is not started from a shell, so `PATH` changes in `~/.zshrc` or `~/.bashrc` (nvm, a hand-installed Node) never reach it, nor the client it starts the server from. It shows the extension host's `PATH` and suggests linking `node` into a directory on it (`src/mcp/nodeOnPath.ts`).
+
 ### 7.3 Registration flow (opt-in)
 
 Command: **`Modelog: Enable MCP Server`**
@@ -132,6 +134,8 @@ Command: **`Modelog: Enable MCP Server`**
 5. Write, then confirm success with the path.
 
 Command: **`Modelog: Disable MCP Server`** removes only the `modelog` entry, leaving the rest of the file untouched.
+
+> **Claude Code registration moved to user scope, 2026-11-22 (#39).** Enable now writes the top-level `mcpServers.modelog` in `~/.claude.json`, which Claude Code applies in every folder (what `claude mcp add --scope user` writes), instead of `projects[<path>].mcpServers.modelog`. The per-project write refused to run whenever Claude Code had no entry for the folder. Claude Code creates those entries lazily, only once a per-project setting changes, so an IDE-only install can have no `projects` key at all, and Enable could never succeed there. It also registered for `workspaceFolders[0]`, the wrong folder in some multi-root workspaces. Modelog belongs to the editor, not to a project, so registration needs no open folder and **never writes into a repository**: a project `.mcp.json` was rejected for that reason (maintainer, 2026-11-22). Per-project entries left by 0.9.2 and earlier are removed by Enable, because Claude Code merges scopes as `{...user, ...project, ...local}` and they would shadow the new entry. Disable and uninstall cleanup remove both kinds. Verified against the CLI bundled in Claude Code for VS Code 2.1.319, which reads user-scope servers from the global config's `mcpServers` and merges in that order. **[untested]** A live session picking up the user-scope entry has not been observed yet.
 
 > **Extended 2026-11-09 (0.9.0), then separated 2026-11-15 (0.9.1): `Modelog: Install Skills` installs the `/start`, `/handoff` and `/done` skills** (PRD §7.25). Enable and Disable no longer touch them; installing them as a side effect of the MCP registration proved unreliable, so they have a palette command pair (`Install Skills`, `Uninstall Skills`) and nothing else. The confirmation (a QuickPick of the two roots, then the dialog below) writes: `~/.claude/skills/<name>/SKILL.md` for Claude Code, `~/.agents/skills/<name>/SKILL.md` for Codex, the Copilot CLI and Copilot Chat. The dialog lists each file and what writing it does (new, unchanged, replaces Modelog's earlier or edited copy, or sets aside a `SKILL.md` that isn't Modelog's), and its *View Skill Files* button opens the exact content. A `SKILL.md` that isn't Modelog's is moved to `~/.modelog/backups/skills/<claude|agents>/<name>/SKILL.md` and put back on removal. If that backup path is already taken, nothing is installed. Each file is read back against its SHA-256, which is recorded with its path in `~/.modelog/uninstall.json` (`src/cleanup/skills.ts`).
 >
@@ -150,7 +154,7 @@ Owning the config-file format of every MCP client is not a v1 commitment.
 >
 > | Client | Mechanism | Who edits the config |
 > | :--- | :--- | :--- |
-> | Claude Code | `~/.claude.json` merge (`claudeConfig.ts`) | Modelog |
+> | Claude Code | `~/.claude.json` merge at user scope (`claudeConfig.ts`) | Modelog |
 > | VS Code's MCP client — what Copilot Chat consumes | `lm.registerMcpServerDefinitionProvider` | **No config file exists** |
 > | GitHub Copilot CLI | `copilot mcp add` | The Copilot CLI |
 > | Codex (CLI and the `openai.chatgpt` extension, one config) | `codex mcp add` | Codex |

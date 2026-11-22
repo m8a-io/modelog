@@ -9,10 +9,11 @@ import {
   withModelogServer,
   withoutModelogServer,
   hasModelogServer,
+  projectsWithModelogServer,
   type McpServerEntry,
 } from "./mcp/claudeConfig.ts";
 import { readClaudeConfig, backupAndWriteClaudeConfig } from "./mcp/claudeConfigFile.ts";
-import { isNodeOnPath, isOnPath } from "./mcp/nodeOnPath.ts";
+import { checkNode, isOnPath, nodeProblemMessage } from "./mcp/nodeOnPath.ts";
 import {
   codexClient,
   copilotCliClient,
@@ -466,25 +467,21 @@ function claudeMcpEntry(
  * actual write is preceded by a backup and an explicit confirmation showing
  * the exact JSON and the exact file (MCP.md §7.3).
  *
- * The success message must not claim the server is connected — task 2.0
- * established Claude Code reads this file at session start only, so it
- * takes effect in the *next* session in this folder, never this one.
+ * The entry goes in at **user scope**, so it needs no open folder and no
+ * project entry, and touches no repository (issue #39, `claudeConfig.ts`).
+ *
+ * The success message must not claim the server is connected. Task 2.0
+ * established Claude Code reads this file at session start only, and #39
+ * found that in the VS Code extension "session" means the window: a new chat
+ * in the same window is not enough. So the message offers a reload.
  */
 async function enableMcpServer(
   context: vscode.ExtensionContext,
   cfg: () => vscode.WorkspaceConfiguration,
 ): Promise<void> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) {
-    void vscode.window.showErrorMessage("Modelog: open a folder to register the MCP server for it.");
-    return;
-  }
-
-  if (!isNodeOnPath()) {
-    void vscode.window.showErrorMessage(
-      'Modelog: "node" was not found on PATH. Claude Code spawns the MCP server by running "node", ' +
-        "so it must be reachable here for registration to work.",
-    );
+  const node = checkNode();
+  if (node.status !== "ok") {
+    void vscode.window.showErrorMessage(nodeProblemMessage(node, "Claude Code"), { modal: true });
     return;
   }
 
@@ -509,34 +506,36 @@ async function enableMcpServer(
     return;
   }
 
-  const projectPath = folder.uri.fsPath;
   const entry = claudeMcpEntry(deployed.path, context.globalStorageUri.fsPath, cfg().get<string>("billingMode", "auto"));
-  const next = withModelogServer(read.config, projectPath, entry);
-  if (!next) {
-    void vscode.window.showErrorMessage(
-      `Modelog: "${projectPath}" is not yet a project Claude Code knows about. ` +
-        "Open a Claude Code session in this folder once, then retry.",
-    );
-    return;
-  }
-
-  const verb = hasModelogServer(read.config, projectPath) ? "Replace" : "Write";
+  const legacy = projectsWithModelogServer(read.config);
+  const verb = hasModelogServer(read.config) ? "Replace" : "Write";
   const choice = await vscode.window.showInformationMessage(
     `Modelog: ${verb.toLowerCase()} the "modelog" MCP server entry in ${configPath}?`,
     {
       modal: true,
       detail:
-        `This will be written under projects["${projectPath}"].mcpServers.modelog:\n\n` +
+        "This will be written under the top-level mcpServers.modelog, which Claude Code uses in every folder:\n\n" +
         JSON.stringify(entry, null, 2) +
+        (legacy.length > 0
+          ? `\n\nOlder per-folder "modelog" entries would override it, so they are removed from: ${legacy.join(", ")}.`
+          : "") +
         `\n\nA backup of the current file is saved to ${configPath}.bak first. Claude Code reads ` +
-        "this file at session start only, so the server appears in your next session here — not this one.",
+        "this file once per window, so the server starts after a window reload, not in this window's chats.",
     },
     verb,
   );
   if (choice !== verb) return;
 
+  // Re-read rather than reuse the parse above: Claude Code rewrites this file
+  // while it runs, and the dialog may have been open for a while.
+  const current = readClaudeConfig(configPath);
+  if (current.status !== "ok") {
+    void vscode.window.showErrorMessage(`Modelog: ${configPath} changed and can no longer be read. Nothing was written.`);
+    return;
+  }
+
   try {
-    backupAndWriteClaudeConfig(configPath, next);
+    backupAndWriteClaudeConfig(configPath, withModelogServer(current.config, entry).config);
   } catch (e) {
     void vscode.window.showErrorMessage(
       `Modelog: failed to write ${configPath}: ${e instanceof Error ? e.message : String(e)}`,
@@ -544,19 +543,13 @@ async function enableMcpServer(
     return;
   }
 
-  void vscode.window.showInformationMessage(
-    `Modelog: wrote the MCP server entry to ${configPath}. It appears next time you start a Claude Code session in this folder.` +
+  await offerReload(
+    `Modelog: wrote the MCP server entry to ${configPath}. Reload the window to start it; a new chat in this window is not enough.` +
       SKILLS_HINT,
   );
 }
 
 async function disableMcpServer(): Promise<void> {
-  const folder = vscode.workspace.workspaceFolders?.[0];
-  if (!folder) {
-    void vscode.window.showErrorMessage("Modelog: open a folder to disable the MCP server for it.");
-    return;
-  }
-
   const configPath = claudeConfigPath();
   const read = readClaudeConfig(configPath);
   if (read.status === "missing") {
@@ -568,9 +561,9 @@ async function disableMcpServer(): Promise<void> {
     return;
   }
 
-  const projectPath = folder.uri.fsPath;
-  if (!hasModelogServer(read.config, projectPath)) {
-    void vscode.window.showInformationMessage("Modelog: not registered for this project — nothing to do.");
+  const probe = withoutModelogServer(read.config);
+  if (!probe.removedUser && probe.removedFrom.length === 0) {
+    void vscode.window.showInformationMessage("Modelog: not registered with Claude Code — nothing to do.");
     return;
   }
 
@@ -578,14 +571,23 @@ async function disableMcpServer(): Promise<void> {
     `Modelog: remove the "modelog" MCP server entry from ${configPath}?`,
     {
       modal: true,
-      detail: `A backup of the current file is saved to ${configPath}.bak first.`,
+      detail:
+        "Claude Code will no longer start the Modelog server in any folder." +
+        (probe.removedFrom.length > 0 ? ` Older per-folder entries are removed too: ${probe.removedFrom.join(", ")}.` : "") +
+        ` A backup of the current file is saved to ${configPath}.bak first.`,
     },
     "Remove",
   );
   if (choice !== "Remove") return;
 
+  const current = readClaudeConfig(configPath);
+  if (current.status !== "ok") {
+    void vscode.window.showErrorMessage(`Modelog: ${configPath} changed and can no longer be read. Nothing was written.`);
+    return;
+  }
+
   try {
-    backupAndWriteClaudeConfig(configPath, withoutModelogServer(read.config, projectPath));
+    backupAndWriteClaudeConfig(configPath, withoutModelogServer(current.config).config);
   } catch (e) {
     void vscode.window.showErrorMessage(
       `Modelog: failed to write ${configPath}: ${e instanceof Error ? e.message : String(e)}`,
@@ -593,7 +595,20 @@ async function disableMcpServer(): Promise<void> {
     return;
   }
 
-  void vscode.window.showInformationMessage(`Modelog: removed from ${configPath}.`);
+  await offerReload(`Modelog: removed from ${configPath}. Reload the window to stop the running server.`);
+}
+
+/**
+ * Claude Code reads `~/.claude.json` once per window, not per chat: after
+ * Enable, a new chat in the same window still lacked the server until the
+ * window was reloaded (maintainer, 2026-11-22, #39). Same pattern as the
+ * skills install (`ui/skills.ts`): a button, not an automatic reload, because
+ * reloading ends any running chat.
+ */
+async function offerReload(message: string): Promise<void> {
+  const RELOAD = "Reload Window";
+  const choice = await vscode.window.showInformationMessage(message, RELOAD);
+  if (choice === RELOAD) await vscode.commands.executeCommand("workbench.action.reloadWindow");
 }
 
 /** The skills are separate from the server (0.9.1): said wherever a server is enabled, since the commands do nothing without them. */
@@ -786,11 +801,9 @@ async function enableMcpServerViaCli(
     return;
   }
 
-  if (!isNodeOnPath()) {
-    void vscode.window.showErrorMessage(
-      `Modelog: "node" was not found on PATH. ${client.label} spawns the MCP server by running "node", ` +
-        "so it must be reachable here for registration to work.",
-    );
+  const node = checkNode();
+  if (node.status !== "ok") {
+    void vscode.window.showErrorMessage(nodeProblemMessage(node, client.label), { modal: true });
     return;
   }
 
@@ -1195,17 +1208,17 @@ async function showMcpServerStatus(context: vscode.ExtensionContext): Promise<vo
     ? "Registered with VS Code's MCP client. Start it, and tick its tools in the Chat tool picker, to reach it from Copilot Chat."
     : "Not registered — the server bundle could not be deployed. Check the Output panel.";
 
-  const folder = vscode.workspace.workspaceFolders?.[0];
   let targetB: string;
-  if (!folder) {
-    targetB = "Unknown — no folder is open, so there is no project to check.";
-  } else {
-    const read = readClaudeConfig(claudeConfigPath());
-    if (read.status === "missing") targetB = `Not registered — ${claudeConfigPath()} does not exist.`;
-    else if (read.status === "invalid-json") targetB = `Unknown — ${claudeConfigPath()} is not valid JSON.`;
-    else if (hasModelogServer(read.config, folder.uri.fsPath))
-      targetB = `Registered for this project in ${claudeConfigPath()}.`;
-    else targetB = `Not registered for this project. Run "Modelog: Enable MCP Server (Claude Code)" to add it.`;
+  const read = readClaudeConfig(claudeConfigPath());
+  if (read.status === "missing") targetB = `Not registered — ${claudeConfigPath()} does not exist.`;
+  else if (read.status === "invalid-json") targetB = `Unknown — ${claudeConfigPath()} is not valid JSON.`;
+  else {
+    const legacy = projectsWithModelogServer(read.config);
+    targetB = hasModelogServer(read.config)
+      ? `Registered for every folder in ${claudeConfigPath()}.`
+      : `Not registered. Run "Modelog: Enable MCP Server (Claude Code)" to add it.`;
+    if (legacy.length > 0)
+      targetB += ` ${legacy.length} older per-folder entr${legacy.length === 1 ? "y" : "ies"} remain; Enable or Disable removes them.`;
   }
 
   const home = homedir();
